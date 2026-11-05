@@ -15,6 +15,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 from string import Template
+from typing import Any
 
 import numpy as np
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
@@ -216,37 +217,173 @@ class Runner(QObject):
 
 
 class PromptEditor(QGroupBox):
-    """A prompt file picker with an editable JSON text; edits are kept per file until saved or reverted."""
+    """A prompt file picker with a form-based editor for JSON prompt files."""
 
     def __init__(self, window: MainWindow, title: str, options: list[str]):
         super().__init__(title)
         self.w, self.shown = window, None
+        self.widgets: dict[str, QWidget] = {}  # field path -> widget
+        self._loading = False
+
         lay = QVBoxLayout(self)
         self.pick = QComboBox()
         self.pick.addItems(options)
         self.status = label("", "info")
         lay.addWidget(hbox(self.pick, self.status))
-        self.text = QPlainTextEdit()
-        self.text.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
-        lay.addWidget(self.text)
+
+        # Scroll area for the form
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.form_container = QWidget()
+        self.form_layout = QFormLayout(self.form_container)
+        self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.scroll.setWidget(self.form_container)
+        lay.addWidget(self.scroll, 1)
+
         btns = [QPushButton(t) for t in ("Revert", "Save", "Save as...")]
         lay.addWidget(hbox(*btns))
         btns[0].clicked.connect(self.revert)
         btns[1].clicked.connect(lambda: self.save(False))
         btns[2].clicked.connect(lambda: self.save(True))
+
         self.pick.currentTextChanged.connect(lambda _t: self.show_file())
-        self.text.textChanged.connect(self._changed)
-        self._loading = False
+
+    def _clear_form(self):
+        """Remove all widgets from the form."""
+        while self.form_layout.rowCount():
+            self.form_layout.removeRow(0)
+        self.widgets.clear()
+
+    def _create_widget_for_value(self, value: Any, path: str) -> QWidget:
+        """Create an appropriate widget for a JSON value."""
+        if isinstance(value, bool):
+            w = QCheckBox()
+            w.setChecked(value)
+            return w
+        elif isinstance(value, int):
+            w = QSpinBox()
+            w.setRange(-1000000, 1000000)
+            w.setValue(value)
+            return w
+        elif isinstance(value, float):
+            w = QDoubleSpinBox()
+            w.setRange(-1000000.0, 1000000.0)
+            w.setDecimals(4)
+            w.setValue(value)
+            return w
+        elif isinstance(value, str):
+            # Use multiline for longer strings
+            if len(value) > 100 or "\n" in value:
+                w = QPlainTextEdit()
+                w.setPlainText(value)
+                w.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+                return w
+            else:
+                w = QLineEdit()
+                w.setText(value)
+                return w
+        elif isinstance(value, list):
+            # For arrays, create a special editor
+            w = ArrayEditor(value, path, self)
+            return w
+        elif isinstance(value, dict):
+            # For nested objects, create a nested form
+            w = NestedObjectEditor(value, path, self)
+            return w
+        else:
+            w = QLineEdit()
+            w.setText(str(value))
+            return w
+
+    def _get_widget_value(self, widget: QWidget, path: str) -> Any:
+        """Extract the value from a widget."""
+        if isinstance(widget, QCheckBox):
+            return widget.isChecked()
+        elif isinstance(widget, QSpinBox):
+            return widget.value()
+        elif isinstance(widget, QDoubleSpinBox):
+            return widget.value()
+        elif isinstance(widget, QLineEdit):
+            return widget.text()
+        elif isinstance(widget, QPlainTextEdit):
+            return widget.toPlainText()
+        elif isinstance(widget, ArrayEditor):
+            return widget.get_value()
+        elif isinstance(widget, NestedObjectEditor):
+            return widget.get_value()
+        return None
+
+    def _populate_form(self, data: dict, prefix: str = ""):
+        """Recursively populate the form with JSON data."""
+        for key, value in data.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                # Nested object - create a group box with its own form
+                group = QGroupBox(key.replace("_", " ").title())
+                group_layout = QFormLayout(group)
+                group_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+                nested_editor = NestedObjectEditor(value, path, self)
+                # NestedObjectEditor now creates its own layout, so we add it to the group
+                group_layout.addWidget(nested_editor)
+                self.form_layout.addRow(group)
+                self.widgets[path] = nested_editor
+            elif isinstance(value, list):
+                # Array - always use ArrayEditor, even if empty
+                # Check if it's an array of objects (or empty array that should be objects)
+                is_object_array = value and isinstance(value[0], dict)
+                # Also treat known array keys as object arrays
+                if key in ("subjects",) or (not value and key in ("subjects",)):
+                    is_object_array = True
+                if is_object_array:
+                    array_editor = ArrayEditor(value, path, self)
+                    self.form_layout.addRow(key.replace("_", " ").title(), array_editor)
+                    self.widgets[path] = array_editor
+                else:
+                    # Simple array - show as text
+                    widget = self._create_widget_for_value(value, path)
+                    self.widgets[path] = widget
+                    self.form_layout.addRow(key.replace("_", " ").title(), widget)
+            else:
+                widget = self._create_widget_for_value(value, path)
+                self.widgets[path] = widget
+                self.form_layout.addRow(key.replace("_", " ").title(), widget)
+
+    def _collect_form_data(self) -> dict:
+        """Collect all form data into a dictionary."""
+        result = {}
+        for path, widget in self.widgets.items():
+            if isinstance(widget, NestedObjectEditor):
+                # Nested object - place its value under the parent key
+                key = path.split(".")[-1]
+                result[key] = widget.get_value()
+            elif isinstance(widget, ArrayEditor):
+                result[path.split(".")[-1]] = widget.get_value()
+            else:
+                # Simple value - need to handle nested paths
+                parts = path.split(".")
+                if len(parts) == 1:
+                    result[path] = self._get_widget_value(widget, path)
+                else:
+                    # Navigate/create nested dict
+                    d = result
+                    for p in parts[:-1]:
+                        if p not in d:
+                            d[p] = {}
+                        d = d[p]
+                    d[parts[-1]] = self._get_widget_value(widget, path)
+        return result
 
     def _changed(self):
         if not self._loading:
             self.status.setText("edited, not saved")
 
     def stash(self):
-        """Keep the text as an edit of the file it shows (or drop the edit when unchanged)."""
+        """Keep the form data as an edit of the file it shows."""
         if not self.shown:
             return
-        content = self.text.toPlainText()
+        data = self._collect_form_data()
+        content = json.dumps(data, indent=2)
         if content != (g.ROOT / self.shown).read_text():
             self.w.prompt_edits[self.shown] = content
         else:
@@ -256,9 +393,16 @@ class PromptEditor(QGroupBox):
         self.stash()
         rel = self.pick.currentText()
         if not rel:
+            self._clear_form()
             return
         self._loading = True
-        self.text.setPlainText(self.w.prompt_edits.get(rel) or (g.ROOT / rel).read_text())
+        self._clear_form()
+        try:
+            content = self.w.prompt_edits.get(rel) or (g.ROOT / rel).read_text()
+            data = json.loads(content)
+            self._populate_form(data)
+        except json.JSONDecodeError as e:
+            self.w.error(f"Failed to parse JSON: {e}")
         self._loading = False
         self.shown = rel
         self.status.setText("edited, not saved" if rel in self.w.prompt_edits else "")
@@ -270,7 +414,8 @@ class PromptEditor(QGroupBox):
             self.show_file()
 
     def save(self, as_new: bool):
-        content = self.text.toPlainText()
+        data = self._collect_form_data()
+        content = json.dumps(data, indent=2)
         try:
             json.loads(content)
         except json.JSONDecodeError as e:
@@ -292,6 +437,175 @@ class PromptEditor(QGroupBox):
         self.shown = None
         self.show_file()
         self.w.write(f"saved prompt {target}")
+
+
+class NestedObjectEditor(QWidget):
+    """Editor for a nested JSON object."""
+
+    def __init__(self, data: dict, path: str, parent_editor: PromptEditor):
+        super().__init__()
+        self.path = path
+        self.parent_editor = parent_editor
+        self.widgets: dict[str, QWidget] = {}
+        # Create our own form layout
+        self.form_layout = QFormLayout(self)
+        self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        # Populate with the data
+        for key, value in data.items():
+            npath = f"{path}.{key}"
+            nwidget = self.parent_editor._create_widget_for_value(value, npath)
+            self.widgets[key] = nwidget
+            self.form_layout.addRow(key.replace("_", " ").title(), nwidget)
+
+    def get_value(self) -> dict:
+        result = {}
+        for key, widget in self.widgets.items():
+            if isinstance(widget, NestedObjectEditor):
+                result[key] = widget.get_value()
+            elif isinstance(widget, ArrayEditor):
+                result[key] = widget.get_value()
+            else:
+                result[key] = self.parent_editor._get_widget_value(widget, f"{self.path}.{key}")
+        return result
+
+
+class ArrayEditor(QWidget):
+    """Editor for a JSON array (especially array of objects)."""
+
+    def __init__(self, data: list, path: str, parent_editor: PromptEditor):
+        super().__init__()
+        self.path = path
+        self.parent_editor = parent_editor
+        self.items: list[dict] = data
+        self.item_widgets: list[dict[str, QWidget]] = []
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        # Toolbar
+        toolbar = QHBoxLayout()
+        add_btn = QPushButton("Add Item")
+        add_btn.clicked.connect(self.add_item)
+        remove_btn = QPushButton("Remove Selected")
+        remove_btn.clicked.connect(self.remove_selected)
+        toolbar.addWidget(add_btn)
+        toolbar.addWidget(remove_btn)
+        toolbar.addStretch()
+        lay.addLayout(toolbar)
+
+        # List of items
+        self.list_widget = QWidget()
+        self.list_layout = QVBoxLayout(self.list_widget)
+        self.list_layout.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.list_widget)
+
+        # Populate existing items
+        for item in self.items:
+            self._add_item_widget(item)
+
+    def _add_item_widget(self, item: dict):
+        """Add a widget for one array item."""
+        if not isinstance(item, dict):
+            # Simple value array - just show as text
+            w = QLineEdit()
+            w.setText(json.dumps(item))
+            self.list_layout.addWidget(w)
+            self.item_widgets.append({"_value": w, "_group": w})
+            return
+
+        # Object item - create a group box with form
+        group = QGroupBox(f"Item {len(self.item_widgets) + 1}")
+        group_layout = QFormLayout(group)
+        group_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        item_widgets = {"_group": group}
+        for key, value in item.items():
+            widget = self.parent_editor._create_widget_for_value(value, f"{self.path}[{len(self.item_widgets)}].{key}")
+            item_widgets[key] = widget
+            group_layout.addRow(key.replace("_", " ").title(), widget)
+
+        self.list_layout.addWidget(group)
+        self.item_widgets.append(item_widgets)
+
+    def add_item(self):
+        # Add a new empty item based on the first item's structure, or use a default template for known arrays
+        if self.items and isinstance(self.items[0], dict):
+            # Use the structure of the first item as template
+            new_item = {k: ("" if isinstance(v, str) else 0 if isinstance(v, (int, float)) else False if isinstance(v, bool) else {}) for k, v in self.items[0].items()}
+        elif "subjects" in self.path:
+            # Default template for subjects array (from prompt files)
+            new_item = {
+                "description": "",
+                "appearance_details": "",
+                "relationship": "",
+                "location": "",
+                "relative_size": "",
+                "pose": "",
+                "action": ""
+            }
+        elif "lighting" in self.path:
+            new_item = {
+                "conditions": "",
+                "direction": "",
+                "shadows": ""
+            }
+        elif "aesthetics" in self.path:
+            new_item = {
+                "composition": "",
+                "color_scheme": "",
+                "mood_atmosphere": ""
+            }
+        elif "cinematography" in self.path:
+            new_item = {
+                "camera_motion": "",
+                "framing": "",
+                "camera_angle": "",
+                "depth_of_field": "",
+                "lens_focal_length": ""
+            }
+        else:
+            new_item = {}
+        self.items.append(new_item)
+        self._add_item_widget(new_item)
+
+    def remove_selected(self):
+        # For simplicity, remove the last item
+        if self.item_widgets:
+            idx = len(self.item_widgets) - 1
+            widget_dict = self.item_widgets.pop(idx)
+            # Remove the group box from layout
+            group = widget_dict.get("_group")
+            if group:
+                self.list_layout.removeWidget(group)
+                group.setParent(None)
+                group.deleteLater()
+            self.items.pop(idx)
+            # Update group box titles
+            for i, widget_dict in enumerate(self.item_widgets):
+                group = widget_dict.get("_group")
+                if isinstance(group, QGroupBox):
+                    group.setTitle(f"Item {i + 1}")
+
+    def get_value(self) -> list:
+        result = []
+        for i, widget_dict in enumerate(self.item_widgets):
+            if "_value" in widget_dict:
+                # Simple value
+                result.append(self.parent_editor._get_widget_value(widget_dict["_value"], f"{self.path}[{i}]"))
+            else:
+                # Object
+                item = {}
+                for key, widget in widget_dict.items():
+                    if key == "_group":
+                        continue
+                    if isinstance(widget, NestedObjectEditor):
+                        item[key] = widget.get_value()
+                    elif isinstance(widget, ArrayEditor):
+                        item[key] = widget.get_value()
+                    else:
+                        item[key] = self.parent_editor._get_widget_value(widget, f"{self.path}[{i}].{key}")
+                result.append(item)
+        return result
 
 
 class MainWindow(QMainWindow):
