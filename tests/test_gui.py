@@ -92,6 +92,7 @@ def test_pipeline_keys_and_config_comments(tmp_path):
     keys = gui.pipeline_keys(_settings(tmp_path, resolution="480", clips=7), tmp_path)
     assert keys["dataset.resolution"] == "[1248, 720]" and keys["dataset.num_clips"] == "7"
     assert keys["output.dir"] == str(tmp_path / "output" / "run_x")
+    assert keys["scene.max_instances_per_class"] == "3"
     comments = gui.config_comments()
     assert "seed" in comments["output.seed"] and "clutter" in comments["randomization.clutter.enabled"]
     flat = gui.config_values(None)
@@ -117,6 +118,7 @@ def test_settings_from_config_populates_pipeline_fields(tmp_path):
         "  scene_camera: /Cell/Camera\n"
         "  scene_parts: /Cell/Parts\n"
         "  parts_per_clip: [2, 5]\n"
+        "  max_instances_per_class: 7\n"
         "randomization:\n"
         "  clutter:\n"
         "    enabled: false\n"
@@ -135,6 +137,7 @@ def test_settings_from_config_populates_pipeline_fields(tmp_path):
     assert settings.scene_parts == "/Cell/Parts"
     assert settings.clips == 6 and settings.frames == 30
     assert settings.parts_min == 2 and settings.parts_max == 5
+    assert settings.max_instances_per_class == 7
     assert not settings.clutter and settings.clutter_min == 1 and settings.clutter_max == 4
     assert settings.camera_azimuth == 12 and settings.camera_elevation == 9
 

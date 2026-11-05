@@ -518,6 +518,7 @@ class MainWindow(QMainWindow):
         f.addRow("Size", hbox(self.bind("clips", spin(1, 10000)), "clips", self.bind("frames", spin(1, 241)),
                               "frames per clip"))  # fmt: skip
         f.addRow("Parts per clip", hbox(self.bind("parts_min", spin(1, 50)), "to", self.bind("parts_max", spin(1, 50))))
+        f.addRow("Max instances per class", self.bind("max_instances_per_class", spin(1, 255)))
         f.addRow("Clutter", hbox(self.bind("clutter", QCheckBox("on,")), self.bind("clutter_min", spin(0, 50)), "to",
                                  self.bind("clutter_max", spin(0, 50)), "items"))  # fmt: skip
         f.addRow("", label("all other settings: Configuration tab"))

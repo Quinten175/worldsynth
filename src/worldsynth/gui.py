@@ -91,6 +91,7 @@ class GuiSettings:
     frames: int = 61
     parts_min: int = 3
     parts_max: int = 8
+    max_instances_per_class: int = 3
     clutter: bool = True
     clutter_min: int = 0
     clutter_max: int = 8
@@ -178,6 +179,7 @@ def settings_from_config(s: GuiSettings, path: Path) -> GuiSettings:
         frames=cfg.dataset.frames_per_clip,
         parts_min=cfg.scene.parts_per_clip[0],
         parts_max=cfg.scene.parts_per_clip[1],
+        max_instances_per_class=cfg.scene.max_instances_per_class,
         clutter=cfg.randomization.clutter.enabled,
         clutter_min=clutter[0],
         clutter_max=clutter[1],
@@ -246,6 +248,7 @@ def pipeline_keys(s: GuiSettings, root: Path = ROOT) -> dict[str, str]:
         "dataset.resolution": f"[{width}, 720]",
         "randomization.clutter.enabled": str(s.clutter).lower(),
         "scene.parts_per_clip": f"[{s.parts_min}, {s.parts_max}]",
+        "scene.max_instances_per_class": str(s.max_instances_per_class),
     }
     if s.clutter:
         keys["randomization.clutter.count"] = f"[{s.clutter_min}, {s.clutter_max}]"
