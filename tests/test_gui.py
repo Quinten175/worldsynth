@@ -99,6 +99,46 @@ def test_pipeline_keys_and_config_comments(tmp_path):
     assert gui.format_value((0.25, 0.5)) == "[0.25, 0.5]" and gui.format_value(None) == "null"
 
 
+def test_settings_from_config_populates_pipeline_fields(tmp_path):
+    config = tmp_path / "pipeline.yaml"
+    config.write_text(
+        "cad:\n"
+        "  dir: /tmp/parts\n"
+        "  units: mm\n"
+        "  class_from: folder\n"
+        "output:\n"
+        "  dir: /tmp/output\n"
+        "dataset:\n"
+        "  num_clips: 6\n"
+        "  frames_per_clip: 30\n"
+        "scene:\n"
+        "  scene_usd: /tmp/cell.usd\n"
+        "  scene_surface: /Cell/Table\n"
+        "  scene_camera: /Cell/Camera\n"
+        "  scene_parts: /Cell/Parts\n"
+        "  parts_per_clip: [2, 5]\n"
+        "randomization:\n"
+        "  clutter:\n"
+        "    enabled: false\n"
+        "    count: [1, 4]\n"
+        "camera:\n"
+        "  azimuth_sweep: [-12, 8]\n"
+        "  elevation_sweep: [-4, 9]\n"
+    )
+    settings = gui.settings_from_config(GuiSettings(), config)
+
+    assert settings.config_file == str(config)
+    assert settings.cad_dir == "/tmp/parts" and settings.units == "mm" and settings.class_from == "folder"
+    assert settings.use_scene and settings.scene_usd == "/tmp/cell.usd"
+    assert settings.dataset_dir == "/tmp/output" and settings.resolution == "480"
+    assert settings.scene_surface == "/Cell/Table" and settings.scene_camera == "/Cell/Camera"
+    assert settings.scene_parts == "/Cell/Parts"
+    assert settings.clips == 6 and settings.frames == 30
+    assert settings.parts_min == 2 and settings.parts_max == 5
+    assert not settings.clutter and settings.clutter_min == 1 and settings.clutter_max == 4
+    assert settings.camera_azimuth == 12 and settings.camera_elevation == 9
+
+
 def test_validate(tmp_path):
     assert gui.validate(_settings(tmp_path)) == []
     assert gui.validate(_settings(tmp_path, use_scene=True))  # no surface chosen

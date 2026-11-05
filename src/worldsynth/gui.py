@@ -151,6 +151,40 @@ def base_config_path(s: GuiSettings) -> Path:
     return Path(s.config_file) if s.config_file else DEFAULT_CONFIG
 
 
+def settings_from_config(s: GuiSettings, path: Path) -> GuiSettings:
+    """Apply YAML values represented by Pipeline-tab controls to existing GUI settings."""
+    cfg = load_config(path)
+    azimuth = cfg.camera.azimuth_sweep
+    elevation = cfg.camera.elevation_sweep
+    clutter = cfg.randomization.clutter.count
+    resolution = {(1200, 720): "256", (1248, 720): "480"}.get(tuple(cfg.dataset.resolution), s.resolution)
+    return dataclasses.replace(
+        s,
+        config_file=str(path),
+        cad_dir=cfg.cad.dir or "",
+        units=cfg.cad.units,
+        class_from=cfg.cad.class_from,
+        use_scene=bool(cfg.scene.scene_usd),
+        scene_usd=cfg.scene.scene_usd or "",
+        scene_surface=cfg.scene.scene_surface or "",
+        scene_camera=cfg.scene.scene_camera or "",
+        scene_parts=cfg.scene.scene_parts or "",
+        scene_parts_mode=cfg.scene.scene_parts_mode,
+        scene_lights_only=cfg.scene.scene_lights_only,
+        camera_azimuth=max(abs(azimuth[0]), abs(azimuth[1])),
+        camera_elevation=max(abs(elevation[0]), abs(elevation[1])),
+        dataset_dir=cfg.output.dir,
+        clips=cfg.dataset.num_clips,
+        frames=cfg.dataset.frames_per_clip,
+        parts_min=cfg.scene.parts_per_clip[0],
+        parts_max=cfg.scene.parts_per_clip[1],
+        clutter=cfg.randomization.clutter.enabled,
+        clutter_min=clutter[0],
+        clutter_max=clutter[1],
+        resolution=resolution,
+    )
+
+
 # --- configuration (YAML) --------------------------------------------------------------------------------------------
 
 

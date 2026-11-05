@@ -628,6 +628,7 @@ class MainWindow(QMainWindow):
             box.setCurrentIndex(idx if idx is not None else min(default, len(items) - 1))
         self.scene_info.setText(f"{len(info.cameras)} cameras, {len(info.surfaces)} surfaces; file units "
                                 f"{info.meters_per_unit:g} m, {info.up_axis}-up (converted to m, z-up)")  # fmt: skip
+        self.refresh_config()
 
     # --- configuration tab --------------------------------------------------------------------------------------------
     def _build_config(self) -> QWidget:
@@ -758,14 +759,14 @@ class MainWindow(QMainWindow):
         if not f:
             return
         try:
-            g.config_values(Path(f))
+            settings = g.settings_from_config(self.settings(), Path(f))
         except Exception as e:  # noqa: BLE001  (shown to the user)
             self.error(f"Cannot use {f}: {e}")
             return
-        self.fields["config_file"][1](f)
         if self.overrides and not self.ask("Keep the values changed here on top of it?"):
-            self.overrides.clear()
-        self.refresh_config()
+            settings.config_overrides.clear()
+        self.apply_settings(settings)
+        self.write(f"loaded configuration from {f}")
 
     def save_yaml(self):
         f, _ = QFileDialog.getSaveFileName(self, "Save configuration", str(g.ROOT / "configs"), "YAML (*.yaml)")
