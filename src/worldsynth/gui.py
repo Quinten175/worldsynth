@@ -231,9 +231,15 @@ def pipeline_keys(s: GuiSettings, root: Path = ROOT) -> dict[str, str]:
     return keys
 
 
-def write_run_config(s: GuiSettings, path: Path = RUN_CONFIG) -> Path:
-    """Merge the base YAML and the Configuration tab overrides into ``path`` (checked: unknown keys raise)."""
-    cfg = load_config(base_config_path(s), [f"{k}={v}" for k, v in s.config_overrides.items()])
+def write_run_config(s: GuiSettings, path: Path = RUN_CONFIG, *, include_pipeline: bool = False) -> Path:
+    """Merge the base YAML and GUI overrides into ``path`` (checked: unknown keys raise).
+
+    ``include_pipeline`` also persists Pipeline-tab values, for the explicit Save as YAML action.
+    """
+    overrides = dict(s.config_overrides)
+    if include_pipeline:
+        overrides.update(pipeline_keys(s))
+    cfg = load_config(base_config_path(s), [f"{k}={v}" for k, v in overrides.items()])
 
     def plain(v):
         if isinstance(v, dict):
@@ -242,7 +248,7 @@ def write_run_config(s: GuiSettings, path: Path = RUN_CONFIG) -> Path:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        "# Written by the WorldSynth GUI: base config + Configuration tab overrides.\n"
+        "# Written by the WorldSynth GUI.\n"
         + yaml.safe_dump(plain(cfg.to_dict()), sort_keys=False, default_flow_style=None, width=120)
     )
     return path
@@ -485,6 +491,7 @@ def connection_check_command(s: GuiSettings) -> list[str]:
 
 
 def main():
+    os.chdir(ROOT)
     from .gui_qt import run
 
     sys.exit(run(sys.argv))

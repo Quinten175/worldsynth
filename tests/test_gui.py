@@ -75,6 +75,19 @@ def test_run_config_merges_yaml_and_overrides(tmp_path):
     assert gui.validate(_settings(tmp_path, config_overrides={"dataset.nope": "1"}))  # unknown key
 
 
+def test_saved_config_includes_pipeline_scene_and_camera(tmp_path):
+    s = _settings(
+        tmp_path, use_scene=True, scene_surface="/Cell/Workbench/Top", scene_camera="/Cell/Cameras/BenchCam",
+        scene_parts="/Cell/Parts",
+    )  # fmt: skip
+    out = gui.write_run_config(s, tmp_path / "saved.yaml", include_pipeline=True)
+    data = yaml.safe_load(out.read_text())
+    assert data["scene"]["scene_usd"] == s.scene_usd
+    assert data["scene"]["scene_surface"] == "/Cell/Workbench/Top"
+    assert data["scene"]["scene_camera"] == "/Cell/Cameras/BenchCam"
+    assert data["scene"]["scene_parts"] == "/Cell/Parts"
+
+
 def test_pipeline_keys_and_config_comments(tmp_path):
     keys = gui.pipeline_keys(_settings(tmp_path, resolution="480", clips=7), tmp_path)
     assert keys["dataset.resolution"] == "[1248, 720]" and keys["dataset.num_clips"] == "7"

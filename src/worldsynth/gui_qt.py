@@ -773,7 +773,7 @@ class MainWindow(QMainWindow):
             return
         f = str(Path(f).with_suffix(".yaml"))
         try:
-            g.write_run_config(self.settings(), Path(f))
+            g.write_run_config(self.settings(), Path(f), include_pipeline=True)
         except Exception as e:  # noqa: BLE001  (shown to the user)
             self.error(str(e))
             return
