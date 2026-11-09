@@ -95,6 +95,30 @@ class GuiSettings:
     clutter: bool = True
     clutter_min: int = 0
     clutter_max: int = 8
+    min_spacing: float = 0.01
+    """Extra clearance between part footprints [m]."""
+    min_distance: float = 0.0
+    """Minimum center-to-center distance between parts [m]. If > 0, overrides min_spacing."""
+    yaw_range_min: float = -180.0
+    """Minimum yaw rotation (about world z) for placed parts [deg]."""
+    yaw_range_max: float = 180.0
+    """Maximum yaw rotation (about world z) for placed parts [deg]."""
+    pitch_range_min: float = 0.0
+    """Minimum pitch rotation (about local x after yaw) for placed parts [deg]."""
+    pitch_range_max: float = 0.0
+    """Maximum pitch rotation (about local x after yaw) for placed parts [deg]."""
+    roll_range_min: float = 0.0
+    """Minimum roll rotation (about local y after yaw and pitch) for placed parts [deg]."""
+    roll_range_max: float = 0.0
+    """Maximum roll rotation (about local y after yaw and pitch) for placed parts [deg]."""
+    line_mode: bool = False
+    """True: lay parts in a row along the placement area center line (pallet look)."""
+    line_axis: str = "x"
+    """Axis of the row in line mode: ``x`` or ``y``."""
+    line_jitter: float = 0.02
+    """Lateral jitter off the center line and along it [m]."""
+    placement_z: str = ""
+    """Absolute world z of the placement plane [m]; empty: the top of the surface's bounding box."""
     resolution: str = "256"
     steps: int = 50
     looks: int = 1
@@ -183,6 +207,18 @@ def settings_from_config(s: GuiSettings, path: Path) -> GuiSettings:
         clutter=cfg.randomization.clutter.enabled,
         clutter_min=clutter[0],
         clutter_max=clutter[1],
+        min_spacing=cfg.scene.min_spacing,
+        min_distance=cfg.scene.min_distance,
+        yaw_range_min=cfg.scene.yaw_range[0],
+        yaw_range_max=cfg.scene.yaw_range[1],
+        pitch_range_min=cfg.scene.pitch_range[0],
+        pitch_range_max=cfg.scene.pitch_range[1],
+        roll_range_min=cfg.scene.roll_range[0],
+        roll_range_max=cfg.scene.roll_range[1],
+        line_mode=cfg.scene.line_mode,
+        line_axis=cfg.scene.line_axis,
+        line_jitter=cfg.scene.line_jitter,
+        placement_z="" if cfg.scene.placement_z is None else str(cfg.scene.placement_z),
         resolution=resolution,
     )
 
@@ -249,6 +285,15 @@ def pipeline_keys(s: GuiSettings, root: Path = ROOT) -> dict[str, str]:
         "randomization.clutter.enabled": str(s.clutter).lower(),
         "scene.parts_per_clip": f"[{s.parts_min}, {s.parts_max}]",
         "scene.max_instances_per_class": str(s.max_instances_per_class),
+        "scene.min_spacing": str(s.min_spacing),
+        "scene.min_distance": str(s.min_distance),
+        "scene.yaw_range": f"[{s.yaw_range_min}, {s.yaw_range_max}]",
+        "scene.pitch_range": f"[{s.pitch_range_min}, {s.pitch_range_max}]",
+        "scene.roll_range": f"[{s.roll_range_min}, {s.roll_range_max}]",
+        "scene.line_mode": str(s.line_mode).lower(),
+        "scene.line_axis": s.line_axis,
+        "scene.line_jitter": str(s.line_jitter),
+        "scene.placement_z": s.placement_z or "null",
     }
     if s.clutter:
         keys["randomization.clutter.count"] = f"[{s.clutter_min}, {s.clutter_max}]"

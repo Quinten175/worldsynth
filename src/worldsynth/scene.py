@@ -189,7 +189,7 @@ class WorkcellScene:
         m = sc.surface_margin
         if hi[0] - lo[0] <= 2 * m or hi[1] - lo[1] <= 2 * m:
             raise ValueError(f"scene_surface {sc.scene_surface} is smaller than twice surface_margin ({m} m)")
-        self.table_z = float(hi[2])
+        self.table_z = float(hi[2]) if sc.placement_z is None else float(sc.placement_z)
         self.placement_area = ((lo[0] + m, hi[0] - m), (lo[1] + m, hi[1] - m))
         self.bounds = ((lo[0] + 0.005, hi[0] - 0.005), (lo[1] + 0.005, hi[1] - 0.005))
 

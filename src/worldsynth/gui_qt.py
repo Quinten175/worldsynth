@@ -157,6 +157,16 @@ def spin(lo: int, hi: int, width: int = 70) -> QSpinBox:
     return s
 
 
+def dspin(lo: float, hi: float, step: float = 0.1, suffix: str = "", width: int = 90) -> QDoubleSpinBox:
+    s = QDoubleSpinBox()
+    s.setRange(lo, hi)
+    s.setSingleStep(step)
+    s.setDecimals(3)
+    s.setSuffix(suffix)
+    s.setFixedWidth(width)
+    return s
+
+
 class ImageView(QWidget):
     """Shows a BGR image scaled to fit, keeping its aspect ratio."""
 
@@ -835,6 +845,32 @@ class MainWindow(QMainWindow):
         f.addRow("Max instances per class", self.bind("max_instances_per_class", spin(1, 255)))
         f.addRow("Clutter", hbox(self.bind("clutter", QCheckBox("on,")), self.bind("clutter_min", spin(0, 50)), "to",
                                  self.bind("clutter_max", spin(0, 50)), "items"))  # fmt: skip
+        
+        # Placement controls
+        f.addRow("Min spacing", self.bind("min_spacing", dspin(0.0, 1.0, 0.001, " m")))
+        f.addRow("Min distance", self.bind("min_distance", dspin(0.0, 1.0, 0.001, " m")))
+        f.addRow("", label("Min distance overrides min spacing when > 0"))
+        
+        yaw_min = self.bind("yaw_range_min", dspin(-180.0, 180.0, 1.0, " °"))
+        yaw_max = self.bind("yaw_range_max", dspin(-180.0, 180.0, 1.0, " °"))
+        f.addRow("Yaw range", hbox(yaw_min, "to", yaw_max))
+        
+        pitch_min = self.bind("pitch_range_min", dspin(-90.0, 90.0, 1.0, " °"))
+        pitch_max = self.bind("pitch_range_max", dspin(-90.0, 90.0, 1.0, " °"))
+        f.addRow("Pitch range", hbox(pitch_min, "to", pitch_max))
+        
+        roll_min = self.bind("roll_range_min", dspin(-90.0, 90.0, 1.0, " °"))
+        roll_max = self.bind("roll_range_max", dspin(-90.0, 90.0, 1.0, " °"))
+        f.addRow("Roll range", hbox(roll_min, "to", roll_max))
+
+        # Pallet-like line placement: parts in a row along the center line, only small jitter
+        line_axis = QComboBox()
+        line_axis.addItems(["x", "y"])
+        line_box = hbox(self.bind("line_mode", QCheckBox("on,")), self.bind("line_axis", line_axis), "axis",
+                        self.bind("line_jitter", dspin(0.0, 0.5, 0.005, " m", 80)), "jitter")  # fmt: skip
+        f.addRow("Line mode", line_box)
+        f.addRow("Placement Z", self.bind("placement_z", QLineEdit()))
+        
         f.addRow("", label("all other settings: Configuration tab"))
 
         f = self.section("Cosmos Transfer")

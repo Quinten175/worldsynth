@@ -83,6 +83,10 @@ class SceneCfg:
     scene_surface: str | None = None
     """Prim path (as in the scene file) of the surface the parts are placed on; the top of its bounding box, inset by
     ``surface_margin``, becomes the placement area. Required with ``scene_usd``."""
+    placement_z: float | None = None
+    """Absolute world z of the placement plane [m], overriding the top of ``scene_surface``'s bounding box. Use it
+    when the surface prim's bbox top is not the plane the parts should rest on, e.g. a cage/pallet whose bounding
+    box includes walls above the deck (set ``placement_z`` to the deck height)."""
     surface_margin: float = 0.03
     """Distance kept between parts and the edge of ``scene_surface`` [m]."""
     scene_camera: str | None = None
@@ -110,6 +114,22 @@ class SceneCfg:
     (CAD z axis up)."""
     min_spacing: float = 0.01
     """Extra clearance between part footprints [m]."""
+    min_distance: float = 0.0
+    """Minimum center-to-center distance between parts [m]. If > 0, overrides min_spacing for collision checking."""
+    yaw_range: Range = (-180.0, 180.0)
+    """Range of yaw rotation (about world z) for placed parts [deg]. Default is full 360°."""
+    pitch_range: Range = (0.0, 0.0)
+    """Range of pitch rotation (about local x after yaw) for placed parts [deg]. Default is 0 (no pitch)."""
+    roll_range: Range = (0.0, 0.0)
+    """Range of roll rotation (about local y after yaw and pitch) for placed parts [deg]. Default is 0 (no roll)."""
+    line_mode: bool = False
+    """True: lay the parts in a row along the center line of the placement area (like parts on a pallet), with a
+    small lateral and along-the-line jitter instead of fully random positions. Rows fill left to right until the
+    area is full; parts that no longer fit are dropped."""
+    line_axis: str = "x"
+    """Axis of the line in ``line_mode``: ``x`` (row along x, parts offset in y) or ``y`` (row along y)."""
+    line_jitter: float = 0.02
+    """Lateral jitter off the center line and along it [m]."""
 
 
 @dataclass

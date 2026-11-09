@@ -155,9 +155,35 @@ def sample_clip(
         sp = scene.scene_part(entries[i].part.scene_prim)
         fp = R.footprint(sp.vertices, sp.pose[:3, :3])
         occupied.append((sp.pose[:2, 3] + fp.center_xy, fp.radius))
-    poses = R.place_on_table(
-        rng, footprints, scene.placement_area, scene.table_z, cfg.scene.min_spacing, occupied=occupied
-    )
+    sc = cfg.scene
+    if sc.line_mode:
+        poses = R.place_on_line(
+            rng,
+            footprints,
+            scene.placement_area,
+            scene.table_z,
+            sc.min_spacing,
+            occupied=occupied,
+            axis=sc.line_axis,
+            jitter=sc.line_jitter,
+            yaw_range=sc.yaw_range,
+            pitch_range=sc.pitch_range,
+            roll_range=sc.roll_range,
+            min_distance=sc.min_distance,
+        )
+    else:
+        poses = R.place_on_table(
+            rng,
+            footprints,
+            scene.placement_area,
+            scene.table_z,
+            sc.min_spacing,
+            occupied=occupied,
+            yaw_range=sc.yaw_range,
+            pitch_range=sc.pitch_range,
+            roll_range=sc.roll_range,
+            min_distance=sc.min_distance,
+        )
     parts = [
         {"entry": idx, "pose": pose, "material": R.sample_part_material(rng, cfg.randomization.part_material)}
         for idx, pose in zip(chosen, poses, strict=True)
@@ -180,7 +206,9 @@ def sample_clip(
         box = R.footprint(np.array([-s / 2, s / 2]), np.eye(3))
         box.min_z = -clutter_half_height(it)
         clutter_fps.append(box)
-    clutter_poses = R.place_on_table(clutter_rng, clutter_fps, clutter_area, scene.table_z, 0.005, occupied=occupied)
+    clutter_poses = R.place_on_table(
+        clutter_rng, clutter_fps, clutter_area, scene.table_z, 0.005, occupied=occupied
+    )
     clutter = [
         {**it, "pose": pose, "material": R.sample_surface_material(clutter_rng, (0.2, 0.9))}
         for it, pose in zip(items, clutter_poses, strict=True)

@@ -35,6 +35,8 @@ dataset:
 scene:
   scene_usd: null             # predesigned USD scene instead of the built-in table/floor/walls
   scene_surface: null         # prim path in that scene the parts are placed on (top of its bounding box)
+  placement_z: null           # absolute world z of the placement plane [m]; overrides the surface bbox top
+                              # (use for cages/pallets whose bbox top includes walls above the deck)
   surface_margin: 0.03        # keep parts this far from the surface edge
   scene_camera: null          # camera prim path in the scene to render from (else cameras are sampled)
   scene_parts: null           # prim path in the scene whose children are labelled parts (class = name without number)
@@ -48,7 +50,15 @@ scene:
   max_instances_per_class: 3
   placement_area: [[-0.3, 0.3], [-0.2, 0.2]]  # x, y range on the table top
   pose_mode: stable           # stable (physical resting poses) | flat (6 box faces) | upright (CAD z up)
-  min_spacing: 0.01
+  min_spacing: 0.01           # extra clearance between part footprints [m]
+  min_distance: 0.0           # minimum center-to-center distance between parts [m]; if > 0, overrides min_spacing
+  yaw_range: [-180.0, 180.0]  # range of yaw rotation (about world z) for placed parts [deg]
+  pitch_range: [0.0, 0.0]     # range of pitch rotation (about local x after yaw) for placed parts [deg]
+  roll_range: [0.0, 0.0]      # range of roll rotation (about local y after yaw and pitch) for placed parts [deg]
+  line_mode: false            # true: lay parts in a row along the placement area center line (pallet look);
+                              # uses the yaw/pitch/roll ranges above (set them narrow) and line_jitter
+  line_axis: x                # axis of the row in line_mode: x | y
+  line_jitter: 0.02           # lateral jitter off the center line and along it [m]
 
 randomization:
   lighting:

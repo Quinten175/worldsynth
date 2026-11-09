@@ -175,6 +175,10 @@ class PartFootprint:
     """Center of the rotated part's xy bounding box [m]."""
     radius: float
     """Radius of the circle that covers the rotated part's xy footprint [m]."""
+    half_xy: np.ndarray | None = None
+    """Half extents (x, y) of the rotated part's xy bounding box; ``None`` for degenerate inputs."""
+    vertices: np.ndarray | None = None
+    """Camera-frame (rotated) vertices, needed by :func:`place_on_line` to recompute ``min_z`` after tilting."""
 
 
 def footprint(vertices: np.ndarray, rotation: np.ndarray) -> PartFootprint:
@@ -182,7 +186,10 @@ def footprint(vertices: np.ndarray, rotation: np.ndarray) -> PartFootprint:
     lo, hi = v.min(axis=0), v.max(axis=0)
     center = 0.5 * (lo[:2] + hi[:2])
     radius = float(np.max(np.linalg.norm(v[:, :2] - center, axis=1)))
-    return PartFootprint(rotation=rotation, min_z=float(lo[2]), center_xy=center, radius=radius)
+    half = 0.5 * (hi[:2] - lo[:2]) if np.all(hi[:2] - lo[:2] > 1e-9) else None
+    return PartFootprint(
+        rotation=rotation, min_z=float(lo[2]), center_xy=center, radius=radius, half_xy=half, vertices=v
+    )
 
 
 def place_on_table(
@@ -193,35 +200,169 @@ def place_on_table(
     spacing: float,
     max_tries: int = 200,
     occupied: list[tuple[np.ndarray, float]] | None = None,
+    yaw_range: tuple[float, float] = (-180.0, 180.0),
+    pitch_range: tuple[float, float] = (0.0, 0.0),
+    roll_range: tuple[float, float] = (0.0, 0.0),
+    min_distance: float = 0.0,
 ) -> list[np.ndarray | None]:
     """Place parts on the table top without footprint overlap.
 
-    Each part gets a random yaw about the world z axis and lands with its lowest point on ``table_z``.
+    Each part gets a random yaw about the world z axis, optional pitch about local x,
+    and optional roll about local y (after yaw and pitch), and lands with its lowest point on ``table_z``.
 
     Args:
         occupied: Circles ``(center_xy, radius)`` already taken on the table. Placed parts are appended to it, so
             the same list can be passed to later calls (e.g. parts first, then clutter).
+        yaw_range: Range of yaw rotation (about world z) in degrees. Default is full 360°.
+        pitch_range: Range of pitch rotation (about local x after yaw) in degrees. Default is 0 (no pitch).
+        roll_range: Range of roll rotation (about local y after yaw and pitch) in degrees. Default is 0 (no roll).
+        min_distance: Minimum center-to-center distance between parts [m]. If > 0, overrides spacing for collision checking.
 
     Returns:
         A world transform per footprint, or ``None`` for parts that did not fit.
     """
     occupied = [] if occupied is None else occupied
     out = []
+    yaw_min, yaw_max = np.deg2rad(yaw_range[0]), np.deg2rad(yaw_range[1])
+    pitch_min, pitch_max = np.deg2rad(pitch_range[0]), np.deg2rad(pitch_range[1])
+    roll_min, roll_max = np.deg2rad(roll_range[0]), np.deg2rad(roll_range[1])
     for fp in footprints:
         placed = None
         for _ in range(max_tries):
-            yaw = rng.uniform(-np.pi, np.pi)
+            yaw = rng.uniform(yaw_min, yaw_max)
+            pitch = rng.uniform(pitch_min, pitch_max)
+            roll = rng.uniform(roll_min, roll_max)
             xy = np.array([rng.uniform(*area[0]), rng.uniform(*area[1])])
-            if any(np.linalg.norm(xy - c) < fp.radius + r + spacing for c, r in occupied):
+            # Use min_distance if set, otherwise use spacing + footprint radius
+            check_dist = max(min_distance, fp.radius + spacing) if min_distance > 0 else fp.radius + spacing
+            if any(np.linalg.norm(xy - c) < check_dist + r for c, r in occupied):
                 continue
             rz = rot_z(yaw)
-            rot = rz @ fp.rotation
+            # Apply pitch rotation about local x axis (after yaw)
+            if abs(pitch) > 1e-6:
+                rx = np.array([[1.0, 0.0, 0.0], [0.0, np.cos(pitch), -np.sin(pitch)], [0.0, np.sin(pitch), np.cos(pitch)]])
+                rot = rz @ rx
+            else:
+                rot = rz
+            # Apply roll rotation about local y axis (after yaw and pitch)
+            if abs(roll) > 1e-6:
+                ry = np.array([[np.cos(roll), 0.0, np.sin(roll)], [0.0, 1.0, 0.0], [-np.sin(roll), 0.0, np.cos(roll)]])
+                rot = rot @ ry
+            rot = rot @ fp.rotation
             # rotating about z keeps min_z; shift so the footprint center lands on xy
             offset_xy = rz[:2, :2] @ fp.center_xy
             pos = np.array([xy[0] - offset_xy[0], xy[1] - offset_xy[1], table_z - fp.min_z])
             placed = make_transform(rot, pos)
             occupied.append((xy, fp.radius))
             break
+        out.append(placed)
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# line placement (like parts laid out on a pallet)
+
+
+def place_on_line(
+    rng: np.random.Generator,
+    footprints: list[PartFootprint],
+    area: tuple[tuple[float, float], tuple[float, float]],
+    table_z: float,
+    spacing: float,
+    occupied: list[tuple[np.ndarray, float]] | None = None,
+    axis: str = "x",
+    jitter: float = 0.02,
+    yaw_range: tuple[float, float] = (0.0, 0.0),
+    pitch_range: tuple[float, float] = (0.0, 0.0),
+    roll_range: tuple[float, float] = (0.0, 0.0),
+    min_distance: float = 0.0,
+) -> list[np.ndarray | None]:
+    """Lay parts in a row along the center line of the area, like the parts on the pallet picture.
+
+    Parts are placed left-to-right (increasing axis coordinate) shoulder to shoulder (``spacing`` apart) with a
+    small jitter off the line and along it. Every part is yawed so its LONG side runs ALONG the row axis (rotated
+    90 degrees from the slat orientation, so it fits the pallet's cross extent); if that does not fit the row, the
+    across orientation is tried. The whole row shares one yaw wobble within ``yaw_range`` degrees;
+    ``pitch_range``/``roll_range`` tilt parts. Collision checks use oriented bounding boxes (``min_distance`` adds
+    extra center-to-center clearance), so long parts fit. Parts that do not fit are dropped (``None``). The shared
+    ``occupied`` list keeps its ``(center, radius)`` circle format, so it can be passed on to
+    :func:`place_on_table` (e.g. for clutter).
+    """
+    (lo0, hi0), (lo1, hi1) = area
+    if axis == "x":  # the row runs along x; parts are offset across it in y
+        lo, hi, cross = lo0, hi0, (lo1 + hi1) / 2.0
+        cross_lo, cross_hi = lo1, hi1
+    else:
+        lo, hi, cross = lo1, hi1, (lo0 + hi0) / 2.0
+        cross_lo, cross_hi = lo0, hi0
+    wobble = np.deg2rad(rng.uniform(min(yaw_range), max(yaw_range)))  # one wobble for the whole row
+    span = max(yaw_range) - min(yaw_range)  # in degrees: >= 360 means any yaw is fine
+    occupied_ = list(occupied) if occupied else []
+    boxes = [(c, r, r) for c, r in occupied_]  # obstacles as boxes (circles are their conservative bound)
+    clearance = max(0.0, min_distance)
+    cursor = lo  # far edge of the part placed last
+    out = []
+
+    def fits_and_pose(fp, yaw0):
+        """A pose for ``fp`` at the cursor with base yaw ``yaw0`` plus the row wobble, or ``None``."""
+        c, s = np.cos(yaw0 + wobble), np.sin(yaw0 + wobble)
+        ex, ey = abs(c) * hx + abs(s) * hy, abs(s) * hx + abs(c) * hy  # yawed half extents (world x, y)
+        along_half, cross_half = (ex, ey) if axis == "x" else (ey, ex)
+        nominal = cursor + along_half
+        if nominal + along_half > hi:
+            return None  # the row is full (or the part too long for the remaining space)
+        for _ in range(8):  # the jitter must keep the part inside the row, and off the placed ones
+            along = np.clip(nominal + rng.uniform(-jitter, jitter), lo + along_half, hi - along_half)
+            lat_lo, lat_hi = cross_lo + cross_half, cross_hi - cross_half
+            if lat_lo > lat_hi:  # wider than the cross extent: centered on the line, overhanging like on a pallet
+                lateral = cross + rng.uniform(-jitter, jitter)
+            else:
+                lateral = np.clip(cross + rng.uniform(-jitter, jitter), lat_lo, lat_hi)
+            xy = np.array([along, lateral]) if axis == "x" else np.array([lateral, along])
+            if any(
+                abs(xy[0] - bxy[0]) < bhx + ex + clearance and abs(xy[1] - bxy[1]) < bhy + ey + clearance
+                for bxy, bhx, bhy in boxes
+            ):
+                continue
+            pitch = np.deg2rad(rng.uniform(min(pitch_range), max(pitch_range)))
+            roll = np.deg2rad(rng.uniform(min(roll_range), max(roll_range)))
+            rz = rot_z(yaw0 + wobble)
+            perturb = rz  # yaw + optional pitch/roll, applied AFTER the resting rotation
+            if abs(pitch) > 1e-6:
+                cp, sp = np.cos(pitch), np.sin(pitch)
+                perturb = perturb @ np.array([[1.0, 0.0, 0.0], [0.0, cp, -sp], [0.0, sp, cp]])
+            if abs(roll) > 1e-6:
+                cr, sr = np.cos(roll), np.sin(roll)
+                perturb = perturb @ np.array([[cr, 0.0, sr], [0.0, 1.0, 0.0], [-sr, 0.0, cr]])
+            rot = perturb @ fp.rotation  # fp.vertices are already in the fp.rotation frame
+            offset_xy = rz[:2, :2] @ fp.center_xy
+            min_z = fp.min_z
+            if fp.vertices is not None:  # tilt (not the resting rotation again!) lowers the lowest vertex
+                min_z = float((fp.vertices @ perturb[:3, :3].T)[:, 2].min())
+            pos = np.array([xy[0] - offset_xy[0], xy[1] - offset_xy[1], table_z - min_z])
+            return make_transform(rot, pos), xy, ex, ey, along_half
+        return None
+
+    for fp in footprints:
+        placed = None
+        hx, hy = (fp.radius, fp.radius) if fp.half_xy is None else (float(fp.half_xy[0]), float(fp.half_xy[1]))
+        # base yaws: long side ALONG the row axis first (rotated 90 deg from slat, fits the pallet), then across;
+        # full-span yaw: random
+        if span < 360.0:
+            along = (hx >= hy) == (axis == "x")  # yaw 0 maps local x to world x
+            yaws = [(0.0 if along else np.pi / 2.0), (np.pi / 2.0 if along else 0.0)]
+        else:
+            yaws = [rng.uniform(-np.pi, np.pi)]
+        for yaw0 in yaws:
+            result = fits_and_pose(fp, yaw0)
+            if result is not None:
+                placed, xy, ex, ey, along_half = result
+                occupied_.append((xy, fp.radius))
+                boxes.append((xy, ex, ey))
+                cursor = xy[0 if axis == "x" else 1] + along_half + spacing
+                break
+        if placed is not None and occupied is not None:
+            occupied.append(occupied_[-1])  # keep the caller's visible list in circle format
         out.append(placed)
     return out
 
