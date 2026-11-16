@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import shlex
 from pathlib import Path
 
 import cv2
@@ -291,20 +292,22 @@ def prepare(
 
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
     script = out_dir / "run_batch.sh"
-    script.write_text(RUN_BATCH.format(remote=remote))
+    job_names = " ".join(shlex.quote(job["name"]) for job in manifest["jobs"])
+    script.write_text(RUN_BATCH.format(remote=remote, job_names=job_names))
     script.chmod(0o755)
     return manifest
 
 
 RUN_BATCH = """#!/bin/bash
-# Run every spec of this batch with Cosmos3 Transfer, skipping specs whose output already exists.
+# Run every manifest job with Cosmos3 Transfer, skipping specs whose output already exists.
 # Uses run_transfer.sh from worldsynth/scripts/cosmos (Cosmos3-Nano with a memory watchdog).
 # Usage on the Cosmos machine: {remote}/run_batch.sh [path/to/run_transfer.sh]
 set -u
 RUN=${{1:-$HOME/cosmos-work/run_transfer.sh}}
 OUT=${{COSMOS_ROOT:-$HOME/cosmos-work/cosmos}}/cookbooks/cosmos3/generator/transfer/outputs/Cosmos3-Nano
-for spec in {remote}/specs/*.json; do
-  name=$(basename "$spec" .json)
+for name in {job_names}; do
+  spec="{remote}/specs/$name.json"
+  if [ ! -f "$spec" ]; then echo "missing spec $spec" >&2; exit 1; fi
   if [ -f "$OUT/$name/vision.mp4" ]; then echo "skip $name"; continue; fi
   echo "$(date +%T) $name"
   "$RUN" "$spec"

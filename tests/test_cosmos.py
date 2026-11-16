@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 
 import cv2
 import numpy as np
@@ -56,17 +58,33 @@ def test_prepare_writes_specs(tmp_path):
     )
     prompt = tmp_path / "look.json"
     prompt.write_text(json.dumps({"subjects": [{"description": "Parts ({parts}) on a bench"}]}))
-    manifest = cosmos.prepare(ds, tmp_path / "batch", [prompt], None, remote_dir="/remote/batch")
+    batch = tmp_path / "batch"
+    manifest = cosmos.prepare(ds, batch, [prompt], None, remote_dir=str(batch))
     (job,) = manifest["jobs"]
     spec = json.loads((tmp_path / "batch" / "specs" / f"{job['name']}.json").read_text())
     assert spec["num_frames"] == 3 and spec["fps"] == 20
-    assert spec["depth"]["control_path"] == "/remote/batch/inputs/clip_0000/depth.mp4"
-    assert spec["vision_path"] == "/remote/batch/inputs/clip_0000/vision.mp4"
-    written = json.loads((tmp_path / "batch" / "prompts" / f"{job['name']}.json").read_text())
-    assert spec["prompt_path"] == f"/remote/batch/prompts/{job['name']}.json"
+    assert spec["depth"]["control_path"] == f"{batch}/inputs/clip_0000/depth.mp4"
+    assert spec["vision_path"] == f"{batch}/inputs/clip_0000/vision.mp4"
+    written = json.loads((batch / "prompts" / f"{job['name']}.json").read_text())
+    assert spec["prompt_path"] == f"{batch}/prompts/{job['name']}.json"
     assert written["subjects"][0]["description"] == "Parts (flange plate) on a bench"
     assert written["subjects"][1]["description"].endswith("2 small cardboard boxes, 1 rubber ball")
     assert len(cosmos.read_video(tmp_path / "batch" / "inputs" / "clip_0000" / "seg.mp4")) == 3
+
+    stale = batch / "specs" / "old_prompt.json"
+    stale.write_text("{}")
+    calls = tmp_path / "calls.txt"
+    transfer = tmp_path / "run_transfer.sh"
+    transfer.write_text('#!/bin/sh\nprintf "%s\\n" "$(basename "$1" .json)" >> "$CALLS"\n')
+    transfer.chmod(0o755)
+    subprocess.run(
+        [str(batch / "run_batch.sh"), str(transfer)],
+        check=True,
+        env={**os.environ, "CALLS": str(calls), "COSMOS_ROOT": str(tmp_path / "cosmos")},
+        capture_output=True,
+        text=True,
+    )
+    assert calls.read_text().splitlines() == [job["name"]]
 
 
 def test_clutter_subject_only_when_clutter_exists():

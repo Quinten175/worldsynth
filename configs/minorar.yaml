@@ -6,7 +6,7 @@ dataset:
   num_clips: 10
   frames_per_clip: 1
   fps: 20
-  resolution: [1248, 720]
+  resolution: [1200, 720]
   renderer: realtime
   antialiasing: DLAA
   path_tracing_spp: 64

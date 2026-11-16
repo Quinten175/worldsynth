@@ -189,10 +189,10 @@ if want send; then
   step "send: upload to $SPARK:$REMOTE_BATCH"
   "${SSH[@]}" "mkdir -p $REMOTE_BASE && test -x ~/cosmos-work/run_transfer.sh" \
     || { echo "~/cosmos-work/run_transfer.sh missing on the Spark (copy scripts/cosmos/run_transfer.sh there)"; exit 1; }
-  rsync -a --exclude results -e "$RSYNC_SSH" "$BATCH/" "$SPARK:$REMOTE_BATCH/"
   if "${SSH[@]}" "pgrep -f '$REMOTE_BATCH/[r]un_batch.sh' > /dev/null"; then
     echo "this batch is already running on the Spark"
   else
+    rsync -a --delete --exclude results -e "$RSYNC_SSH" "$BATCH/" "$SPARK:$REMOTE_BATCH/"
     # Detached, so a dropped connection does not stop it; finished jobs are skipped when started again.
     # A lock serializes WorldSynth batches, and the job waits until no other Cosmos inference is using the GPU.
     "${SSH[@]}" "rm -f $REMOTE_BATCH/DONE; nohup flock $REMOTE_BASE/.lock sh -c '

@@ -254,6 +254,9 @@ def test_qt_window_round_trips_settings(tmp_path, monkeypatch):
     )  # fmt: skip
     win.apply_settings(s)
     assert win.settings() == s  # every field reaches a widget and comes back unchanged
+    win.look_editor.pick.setCurrentText("configs/cosmos/prompts/tending_cell_dim.json")
+    assert win.settings().prompt == "configs/cosmos/prompts/tending_cell_dim.json"
+    assert [p.name for p in gui.look_files(win.settings())] == ["tending_cell_dim.json"]
     assert win.step_btns[4].isEnabled() and not win.sections["Scene"].isVisibleTo(win)
     win.apply_settings(dataclasses.replace(s, source="cad"))
     assert not win.step_btns[4].isEnabled() and win.sections["Scene"].isVisibleTo(win)

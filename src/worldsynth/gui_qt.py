@@ -1149,6 +1149,7 @@ class MainWindow(QMainWindow):
         first = next((o for o in self.look_options if o.startswith("configs/cosmos/prompts/")), None)
         if first:
             self.look_editor.pick.setCurrentText(first)
+        self.look_editor.pick.currentTextChanged.connect(self.look_box.setCurrentText)
         # the negative prompt shown here is the one the run uses
         self.neg_editor.pick.currentTextChanged.connect(self.negative_box.setCurrentText)
         lay.addWidget(self.look_editor, 3)
