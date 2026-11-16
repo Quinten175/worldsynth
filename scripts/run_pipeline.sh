@@ -49,7 +49,7 @@
 #                        generate  render the dataset in Isaac Sim
 #                        prepare   turn the clips into Cosmos input videos (rgb/depth/seg), prompts and specs
 #                        send      upload the batch to the Spark and start Cosmos there (does not wait)
-#                        fetch     wait until Cosmos is done, copy the results back and import them
+#                        fetch     wait until Cosmos is done, copy the results back, import them and clean up Spark videos
 #                        convert   (demos) original + Cosmos HDF5 -> training data with --convert-script
 #   --skip-sim         same as --stages prepare,send,fetch
 #   --skip-cosmos      same as --stages generate
@@ -225,6 +225,23 @@ if want fetch; then
   step "fetch: copy back to $BATCH/results and import"
   mkdir -p "$BATCH/results"
   rsync -a -e "$RSYNC_SSH" --include "${JOB_PREFIX}__*/***" --exclude '*' "$SPARK:$REMOTE_OUTPUTS/" "$BATCH/results/"
+  CLEANUP_CMD=$("$PY" -c '
+import shlex
+import sys
+
+batch, outputs, prefix = sys.argv[1:]
+output_path = shlex.quote(outputs)
+input_path = shlex.quote(batch + "/inputs")
+pattern = shlex.quote(prefix + "__*")
+find_outputs = (
+    f"find {output_path} -mindepth 1 -maxdepth 1 -type d "
+    f"-name {pattern} -exec rm -rf -- {{}} +"
+)
+print(f"{find_outputs} && rm -rf -- {input_path}")
+' "$REMOTE_BATCH" "$REMOTE_OUTPUTS" "$JOB_PREFIX")
+  step "fetch: remove this batch's input videos and generated outputs from the Spark"
+  "${SSH[@]}" "$CLEANUP_CMD"
+  echo "removed remote inputs and outputs for ${JOB_PREFIX}__*"
   "$PY" "$ROOT/scripts/cosmos_import.py" "$DATASET" --batch "$BATCH" --results "$BATCH/results"
   for image_dir in $(ls -d "$DATASET"/clips/*/rgb_cosmos* 2>/dev/null | xargs -rn1 basename | sort -u); do
     "$PY" "$ROOT/scripts/visualize.py" "$DATASET" --image_dir "$image_dir" --all_clips --side_by_side

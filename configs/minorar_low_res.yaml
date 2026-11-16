@@ -4,7 +4,7 @@ cad: {dir: /home/minorar/worldsynth/assets/joke, cache_dir: /home/minorar/worlds
 output: {dir: /home/minorar/worldsynth/output, seed: 0, overwrite: false}
 dataset:
   num_clips: 1
-  frames_per_clip: 1
+  frames_per_clip: 10
   fps: 20
   resolution: [1200, 720]
   renderer: realtime
