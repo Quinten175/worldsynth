@@ -82,13 +82,14 @@ the desktop's light or dark theme. Every start uses the defaults;
 - **Output:** the run name, the **dataset folder** (where Isaac Sim writes; empty: `output/<name>`) and the
   **Cosmos folder** (Cosmos input videos and batch; results are copied back to `<folder>/results`; empty:
   `output/<name>_cosmos`).
-- **Dataset:** clips, frames per clip, parts per clip, clutter.
+- **Dataset:** clips, frames per clip, parts per clip, maximum instances per class, clutter.
 - **Cosmos:** resolution (256 or 480), steps, looks per clip, which looks to use and the negative prompt.
 - **Spark:** host/IP, user and password, with **Test connection** (login, Cosmos runner, free memory). The password is
   only passed to `ssh` in the environment of the run; it is never saved (leave it empty with SSH keys).
 
-**Configuration tab:** every setting of the YAML config with where its value comes from. **Load YAML...** picks the
-base config (default `configs/default.yaml`); double-click a value to change it (blue, checked right away);
+**Configuration tab:** every setting of the YAML config with where its value comes from. **Load YAML...** loads the
+base config (default `configs/default.yaml`) and updates matching Pipeline-tab settings; double-click a value to
+change it (blue, checked right away);
 **Revert selected**, **Reset to defaults**, **Save as YAML...** to keep the result as a config file. Values set on the
 Pipeline tab are grey: the Pipeline tab wins. Selecting a key shows its description from `default.yaml`.
 
@@ -550,7 +551,22 @@ python -m pytest tests        # pure Python (numpy, opencv, trimesh, pyyaml; usd
 
 ## Limitations of this first iteration
 
-- Parts lie on one surface in stable poses; no bins, fixtures, stacking or physics-based piles yet.
+- Parts are placed on a surface in stable poses; optional pile mode makes a randomized pile with varied orientations
+  and reduced footprint overlap. `scene.pile_layers` can limit the pile to a target number of layers.
+  `scene.physics_settle` instead uses Isaac Lab/PhysX rigid-body simulation to drop CAD parts into the scene one at a
+  time, freezing each at its settled pose; `scene.physics_steps` controls the simulation steps per part. Collision
+  meshes use USD's guide purpose so they remain available to PhysX but hidden from rendering.
 - Materials are simple PBR (UsdPreviewSurface) without textures or wear; the dome light has no HDRI.
 - Parts with several meshes and a CAD assembly per file are treated as one rigid part.
 - One camera per clip; no wrist camera or stereo.
+
+
+
+
+
+cd /home/minorar/IsaacLab
+.venv/bin/python scripts/tools/record_demos.py \
+  --task Isaac-Stack-Cube-Franka-IK-Rel-Visuomotor-Cosmos-Mimic-v0 \
+  --teleop_device keyboard \
+  --dataset_file /home/minorar/IsaacLab/datasets/stack/cosmos_test.hdf5 \
+  --num_demos 10

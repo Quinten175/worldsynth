@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from isaaclab.sim.utils.semantics import add_labels
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
 from . import randomize as R
 from . import scene_info
@@ -131,6 +131,7 @@ class WorkcellScene:
         """World transform, focal length and horizontal aperture of the chosen scene camera."""
         self.horizontal_aperture = HORIZONTAL_APERTURE
         self.scene_parts: list[ScenePart] = []
+        self.physics_collision_root = "/World/Workcell"
         if cfg.scene.scene_usd:
             self._load_scene()
         else:
@@ -140,6 +141,8 @@ class WorkcellScene:
             self.bounds = ((-sx / 2 + 0.05, sx / 2 - 0.05), (-sy / 2 + 0.05, sy / 2 - 0.05))
             self._build_workcell()
         self.lights_enabled = not (cfg.scene.scene_usd and cfg.scene.scene_lights_only)
+        if cfg.scene.physics_settle:
+            self._create_static_collision_meshes()
         if self.lights_enabled:
             self._build_lights()
         self._build_camera()
@@ -192,6 +195,7 @@ class WorkcellScene:
         self.table_z = float(hi[2]) if sc.placement_z is None else float(sc.placement_z)
         self.placement_area = ((lo[0] + m, hi[0] - m), (lo[1] + m, hi[1] - m))
         self.bounds = ((lo[0] + 0.005, hi[0] - 0.005), (lo[1] + 0.005, hi[1] - 0.005))
+        self.physics_collision_root = str(surface.GetPath())
 
         parts_root = None
         if sc.scene_parts:
@@ -370,7 +374,55 @@ class WorkcellScene:
         self.stage.RemovePrim(PARTS_ROOT)
         self.stage.RemovePrim(CLUTTER_ROOT)
 
-    def add_part(self, index: int, part: Part, pose: np.ndarray, material: dict | None) -> str:
+    def _create_collision_mesh(
+        self, path: str, vertices: np.ndarray, faces: np.ndarray, approximation: str
+    ) -> Usd.Prim:
+        mesh = UsdGeom.Mesh.Define(self.stage, path)
+        mesh.CreatePointsAttr([Gf.Vec3f(*map(float, p)) for p in vertices])
+        mesh.CreateFaceVertexCountsAttr([3] * len(faces))
+        mesh.CreateFaceVertexIndicesAttr(np.asarray(faces, dtype=np.int32).reshape(-1).tolist())
+        mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+        mesh.CreatePurposeAttr(UsdGeom.Tokens.guide)
+        UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
+        UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim()).CreateApproximationAttr().Set(approximation)
+        return mesh.GetPrim()
+
+    def _create_static_collision_meshes(self):
+        root = self.stage.GetPrimAtPath(self.physics_collision_root)
+        if not root.IsValid():
+            raise RuntimeError(f"Physics collision root not found: {self.physics_collision_root}")
+        count = 0
+        xf = UsdGeom.XformCache()
+        for prim in Usd.PrimRange(root):
+            if not prim.IsA(UsdGeom.Gprim):
+                continue
+            imageable = UsdGeom.Imageable(prim)
+            if imageable.ComputeVisibility() == UsdGeom.Tokens.invisible:
+                continue
+            geometry = gprim_mesh(prim)
+            if geometry is None:
+                continue
+            vertices, faces = geometry
+            transform = _mat(xf.GetLocalToWorldTransform(prim))
+            world_vertices = vertices @ transform[:3, :3].T + transform[:3, 3]
+            if np.linalg.det(transform[:3, :3]) < 0:
+                faces = faces[:, ::-1]
+            self._create_collision_mesh(
+                f"/World/Physics/Static/collider_{count:04d}", world_vertices, faces, "none"
+            )
+            count += 1
+        if count == 0:
+            raise RuntimeError(f"No static collision geometry found under {self.physics_collision_root}")
+        self.physics_static_collider_count = count
+
+    def add_part(
+        self,
+        index: int,
+        part: Part,
+        pose: np.ndarray,
+        material: dict | None,
+        collision_mesh: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> str:
         """Reference a part under ``/World/Parts/part_###`` with its pose and semantic class; return the prim path."""
         path = f"{PARTS_ROOT}/part_{index:03d}"
         root = UsdGeom.Xform.Define(self.stage, path).GetPrim()
@@ -380,6 +432,16 @@ class WorkcellScene:
         asset = self.stage.DefinePrim(f"{path}/geom/asset", "Xform")
         asset.GetReferences().AddReference(str(part.usd_path), part.root_prim_path)
         add_labels(root, [part.category], instance_name="class")
+        if self.cfg.scene.physics_settle:
+            if collision_mesh is None:
+                collision_mesh = (part.vertices, part.faces)
+            self._create_collision_mesh(
+                f"{path}/physics_collision", collision_mesh[0], collision_mesh[1], "convexDecomposition"
+            )
+            body = UsdPhysics.RigidBodyAPI.Apply(root)
+            body.CreateKinematicEnabledAttr(False)
+            mass = UsdPhysics.MassAPI.Apply(root)
+            mass.CreateMassAttr(1.0)
         if material is not None:
             bind_material(root, make_material(self.stage, f"{path}/Looks/Material", material), override_children=True)
         return path

@@ -156,7 +156,27 @@ def sample_clip(
         fp = R.footprint(sp.vertices, sp.pose[:3, :3])
         occupied.append((sp.pose[:2, 3] + fp.center_xy, fp.radius))
     sc = cfg.scene
-    if sc.line_mode:
+    if sc.pile_mode or sc.physics_settle:
+        poses = R.place_in_pile(
+            rng,
+            footprints,
+            scene.placement_area,
+            scene.table_z,
+            sc.min_spacing,
+            sc.pile_max_height,
+            occupied=occupied,
+            max_layers=sc.pile_layers,
+            yaw_range=sc.yaw_range,
+            pitch_range=sc.pitch_range,
+            roll_range=sc.roll_range,
+            drop_for_physics=False,
+        )
+        if sum(pose is not None for pose in poses) < len(chosen):
+            raise RuntimeError(
+                f"Could only place {sum(pose is not None for pose in poses)} of {len(chosen)} requested parts in the "
+                "pile; increase scene.pile_max_height or the placement area."
+            )
+    elif sc.line_mode:
         poses = R.place_on_line(
             rng,
             footprints,
@@ -240,7 +260,7 @@ def build_clip(scene: WorkcellScene, clip: dict, entries: list[PartEntry]) -> tu
             if p["pose"] is None:
                 p["pose"] = scene.scene_part_pose(path)
         else:
-            path = scene.add_part(i, e.part, p["pose"], p["material"])
+            path = scene.add_part(i, e.part, p["pose"], p["material"], collision_mesh=e.silhouette)
         objects.append(
             SceneObject(
                 instance_id=i + 1,
@@ -296,6 +316,8 @@ def run(cfg: WorldSynthCfg):
     stage = omni.usd.get_context().get_stage()
     scene = WorkcellScene(stage, cfg)
     entries, categories = load_parts(cfg, scene.scene_parts)
+    if cfg.scene.physics_settle and any(e.part.scene_prim is not None for e in entries):
+        raise ValueError("scene.physics_settle currently supports CAD parts, not parts authored in scene.scene_parts")
     meta = {
         "name": out.name,
         "generator": "worldsynth",
@@ -333,12 +355,17 @@ def run(cfg: WorldSynthCfg):
     meta_path.write_text(json.dumps(meta, indent=2))
 
     width, height = cfg.dataset.resolution
+    if cfg.scene.physics_settle:
+        import carb.settings
+
+        carb.settings.get_settings().set_bool("/rtx/hydra/readTransformsFromFabricInRenderDelegate", False)
     capture = Capture(cfg.dataset)
     writer = FrameWriter()
     scene_part_paths = {sp.path for sp in scene.scene_parts}
     ds = cfg.dataset
     t_start = time.time()
     generated = 0
+    settler = None
     for clip_idx in range(ds.num_clips):
         clip_dir = out / "clips" / f"clip_{clip_idx:04d}"
         if (clip_dir / "clip.json").exists():
@@ -350,6 +377,12 @@ def run(cfg: WorldSynthCfg):
         clip = sample_clip(rng, cfg, entries, scene, clip_idx)
         kept_paths = {entries[p["entry"]].part.scene_prim for p in clip["parts"] if p["pose"] is None}
         objects, background = build_clip(scene, clip, entries)
+        if cfg.scene.physics_settle:
+            if settler is None:
+                from .physics import IsaacLabSettler
+
+                settler = IsaacLabSettler(cfg.scene.physics_steps)
+            settler.settle(scene, clip, objects)
         if scene.scene_camera is not None:
             t0, focal, _ = scene.scene_camera
             target = R.look_target(t0, scene.table_z)

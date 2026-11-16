@@ -130,6 +130,16 @@ class SceneCfg:
     """Axis of the line in ``line_mode``: ``x`` (row along x, parts offset in y) or ``y`` (row along y)."""
     line_jitter: float = 0.02
     """Lateral jitter off the center line and along it [m]."""
+    pile_mode: bool = False
+    """True: stack parts in a randomized, loosely overlapping pile on the placement surface."""
+    pile_max_height: float = 0.6
+    """Maximum pile height above the placement surface [m]."""
+    pile_layers: int | None = None
+    """Target maximum number of randomized pile layers; None selects the layer count automatically."""
+    physics_settle: bool = False
+    """True: drop CAD parts into the placement area and simulate their motion with Isaac Lab/PhysX."""
+    physics_steps: int = 120
+    """Physics steps per sequentially released part (at 1/120 s per step)."""
 
 
 @dataclass

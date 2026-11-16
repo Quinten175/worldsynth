@@ -205,22 +205,7 @@ def place_on_table(
     roll_range: tuple[float, float] = (0.0, 0.0),
     min_distance: float = 0.0,
 ) -> list[np.ndarray | None]:
-    """Place parts on the table top without footprint overlap.
 
-    Each part gets a random yaw about the world z axis, optional pitch about local x,
-    and optional roll about local y (after yaw and pitch), and lands with its lowest point on ``table_z``.
-
-    Args:
-        occupied: Circles ``(center_xy, radius)`` already taken on the table. Placed parts are appended to it, so
-            the same list can be passed to later calls (e.g. parts first, then clutter).
-        yaw_range: Range of yaw rotation (about world z) in degrees. Default is full 360°.
-        pitch_range: Range of pitch rotation (about local x after yaw) in degrees. Default is 0 (no pitch).
-        roll_range: Range of roll rotation (about local y after yaw and pitch) in degrees. Default is 0 (no roll).
-        min_distance: Minimum center-to-center distance between parts [m]. If > 0, overrides spacing for collision checking.
-
-    Returns:
-        A world transform per footprint, or ``None`` for parts that did not fit.
-    """
     occupied = [] if occupied is None else occupied
     out = []
     yaw_min, yaw_max = np.deg2rad(yaw_range[0]), np.deg2rad(yaw_range[1])
@@ -277,17 +262,7 @@ def place_on_line(
     roll_range: tuple[float, float] = (0.0, 0.0),
     min_distance: float = 0.0,
 ) -> list[np.ndarray | None]:
-    """Lay parts in a row along the center line of the area, like the parts on the pallet picture.
 
-    Parts are placed left-to-right (increasing axis coordinate) shoulder to shoulder (``spacing`` apart) with a
-    small jitter off the line and along it. Every part is yawed so its LONG side runs ALONG the row axis (rotated
-    90 degrees from the slat orientation, so it fits the pallet's cross extent); if that does not fit the row, the
-    across orientation is tried. The whole row shares one yaw wobble within ``yaw_range`` degrees;
-    ``pitch_range``/``roll_range`` tilt parts. Collision checks use oriented bounding boxes (``min_distance`` adds
-    extra center-to-center clearance), so long parts fit. Parts that do not fit are dropped (``None``). The shared
-    ``occupied`` list keeps its ``(center, radius)`` circle format, so it can be passed on to
-    :func:`place_on_table` (e.g. for clutter).
-    """
     (lo0, hi0), (lo1, hi1) = area
     if axis == "x":  # the row runs along x; parts are offset across it in y
         lo, hi, cross = lo0, hi0, (lo1 + hi1) / 2.0
@@ -365,6 +340,128 @@ def place_on_line(
             occupied.append(occupied_[-1])  # keep the caller's visible list in circle format
         out.append(placed)
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# layered pile placement
+
+
+def place_in_pile(
+    rng: np.random.Generator,
+    footprints: list[PartFootprint],
+    area: tuple[tuple[float, float], tuple[float, float]],
+    table_z: float,
+    spacing: float,
+    max_height: float,
+    occupied: list[tuple[np.ndarray, float]] | None = None,
+    max_layers: int | None = None,
+    yaw_range: tuple[float, float] = (-180.0, 180.0),
+    pitch_range: tuple[float, float] = (0.0, 0.0),
+    roll_range: tuple[float, float] = (0.0, 0.0),
+    max_tries: int = 200,
+    drop_for_physics: bool = False,
+    drop_height: float = 0.25,
+) -> list[np.ndarray | None]:
+
+    if max_height <= 0:
+        raise ValueError(f"max_height must be positive, got {max_height}")
+    if max_layers is not None and max_layers < 1:
+        raise ValueError(f"max_layers must be at least 1, got {max_layers}")
+    if drop_height < 0:
+        raise ValueError(f"drop_height must be non-negative, got {drop_height}")
+
+    original_occupied = [] if occupied is None else list(occupied)
+    placed_centers: list[tuple[np.ndarray, float]] = []
+    yaw_min, yaw_max = np.deg2rad(yaw_range)
+    pitch_min, pitch_max = np.deg2rad(pitch_range)
+    roll_min, roll_max = np.deg2rad(roll_range)
+    if not footprints:
+        return []
+
+    transforms: list[np.ndarray | None] = [None] * len(footprints)
+    bounds = []
+    for i, fp in enumerate(footprints):
+        if fp.vertices is None:
+            raise ValueError("pile placement requires footprints with vertices")
+        (x0, x1), (y0, y1) = area
+        for _ in range(max_tries):
+            yaw, pitch, roll = (
+                rng.uniform(lo, hi) for lo, hi in ((yaw_min, yaw_max), (pitch_min, pitch_max), (roll_min, roll_max))
+            )
+            perturb = rot_z(yaw)
+            if abs(pitch) > 1e-6:
+                cp, sp = np.cos(pitch), np.sin(pitch)
+                perturb = perturb @ np.array([[1.0, 0.0, 0.0], [0.0, cp, -sp], [0.0, sp, cp]])
+            if abs(roll) > 1e-6:
+                cr, sr = np.cos(roll), np.sin(roll)
+                perturb = perturb @ np.array([[cr, 0.0, sr], [0.0, 1.0, 0.0], [-sr, 0.0, cr]])
+            vertices = fp.vertices @ perturb.T
+            lo, hi = vertices.min(axis=0), vertices.max(axis=0)
+            center = 0.5 * (lo[:2] + hi[:2])
+            half = 0.5 * (hi[:2] - lo[:2])
+            height = float(hi[2] - lo[2])
+            if x1 - x0 >= 2 * half[0] and y1 - y0 >= 2 * half[1] and height <= max_height:
+                bounds.append((i, perturb, lo, center, half, height))
+                break
+
+    if not bounds:
+        return transforms
+
+    area_size = np.array([area[0][1] - area[0][0], area[1][1] - area[1][0]])
+    mean_footprint_area = np.mean([4 * item[4][0] * item[4][1] for item in bounds])
+    if max_layers is None:
+        parts_per_layer = max(1, int(0.75 * np.prod(area_size) / mean_footprint_area))
+    else:
+        parts_per_layer = max(1, int(np.ceil(len(bounds) / max_layers)))
+    layer_count = int(np.ceil(len(bounds) / parts_per_layer))
+    max_part_height = max(item[-1] for item in bounds)
+    if drop_for_physics:
+        vertical_jitter = 0.02
+        layer_step = max_part_height + spacing + vertical_jitter
+    else:
+        vertical_jitter = min(0.025, max(0.0, max_height - max_part_height) / max(1, layer_count))
+        layer_step = (max_height - max_part_height - vertical_jitter) / max(1, layer_count - 1)
+    order = rng.permutation(len(bounds))
+    layer_boxes: list[list[tuple[np.ndarray, np.ndarray]]] = [[] for _ in range(layer_count)]
+    for rank, bound_idx in enumerate(order):
+        i, perturb, lo, center, half, _ = bounds[bound_idx]
+        layer_idx = rank // parts_per_layer
+        base_z = table_z + drop_height + layer_idx * layer_step if drop_for_physics else table_z + layer_idx * layer_step
+        (x0, x1), (y0, y1) = area
+        if x1 - x0 < 2 * half[0] or y1 - y0 < 2 * half[1]:
+            continue
+        best_xy = None
+        best_overlap = float("inf")
+        for _ in range(max_tries):
+            xy = np.array([rng.uniform(x0 + half[0], x1 - half[0]), rng.uniform(y0 + half[1], y1 - half[1])])
+            if layer_idx == 0:
+                nearest = [np.maximum(np.abs(xy - c) - half, 0.0) for c, _ in original_occupied]
+                if any(
+                    np.linalg.norm(d) < radius + spacing
+                    for d, (_, radius) in zip(nearest, original_occupied, strict=True)
+                ):
+                    continue
+            overlap = sum(
+                float(np.prod(np.maximum(half + other_half + spacing - np.abs(xy - other_xy), 0.0)))
+                for other_xy, other_half in layer_boxes[layer_idx]
+            )
+            if overlap < best_overlap:
+                best_xy, best_overlap = xy, overlap
+                if overlap == 0.0:
+                    break
+        if best_xy is not None:
+            fp = footprints[i]
+            z_offset = rng.uniform(0.0, vertical_jitter)
+            transforms[i] = make_transform(
+                perturb @ fp.rotation,
+                [best_xy[0] - center[0], best_xy[1] - center[1], base_z + z_offset - lo[2]],
+            )
+            layer_boxes[layer_idx].append((best_xy, half))
+            placed_centers.append((best_xy, float(np.linalg.norm(half))))
+
+    if occupied is not None:
+        occupied.extend(placed_centers)
+    return transforms
 
 
 # ---------------------------------------------------------------------------------------------------------------------

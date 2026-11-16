@@ -61,6 +61,91 @@ def test_place_on_table_no_overlap_and_on_surface():
             assert np.linalg.norm(ci - cj) >= ri + rj + 0.01 - 1e-9
 
 
+def test_place_in_pile_stacks_parts_within_height_limit():
+    rng = np.random.default_rng(4)
+    v, _ = _box((0.08, 0.08, 0.02))
+    fp = R.footprint(v, np.eye(3))
+    poses = R.place_in_pile(
+        rng,
+        [fp] * 4,
+        ((-0.05, 0.05), (-0.05, 0.05)),
+        0.1,
+        0.005,
+        0.11,
+        yaw_range=(0.0, 0.0),
+    )
+    assert all(pose is not None for pose in poses)
+    bases = [float((v @ pose[:3, :3].T + pose[:3, 3])[:, 2].min()) for pose in poses]
+    assert len(set(np.round(bases, 6))) >= 2
+    assert max((v @ pose[:3, :3].T + pose[:3, 3])[:, 2].max() for pose in poses) <= 0.21 + 1e-9
+
+
+def test_place_in_pile_keeps_same_layer_footprints_separate():
+    rng = np.random.default_rng(12)
+    v, _ = _box((0.08, 0.08, 0.02))
+    fp = R.footprint(v, np.eye(3))
+    poses = R.place_in_pile(
+        rng,
+        [fp] * 4,
+        ((-0.15, 0.15), (-0.15, 0.15)),
+        0.1,
+        0.005,
+        0.2,
+        yaw_range=(0.0, 0.0),
+    )
+    footprints = []
+    for pose in poses:
+        assert pose is not None
+        points = v @ pose[:3, :3].T + pose[:3, 3]
+        footprints.append((points[:, :2].min(axis=0), points[:, :2].max(axis=0), points[:, 2].min()))
+    for i, (lo, hi, z) in enumerate(footprints):
+        for other_lo, other_hi, other_z in footprints[:i]:
+            if abs(z - other_z) < 1e-9:
+                assert np.any(hi + 0.005 <= other_lo) or np.any(other_hi + 0.005 <= lo)
+
+
+def test_place_in_pile_respects_max_layers():
+    rng = np.random.default_rng(16)
+    vertices, _ = _box((0.08, 0.08, 0.02))
+    fp = R.footprint(vertices, np.eye(3))
+    poses = R.place_in_pile(
+        rng,
+        [fp] * 9,
+        ((-0.15, 0.15), (-0.15, 0.15)),
+        0.1,
+        0.005,
+        0.2,
+        max_layers=3,
+        yaw_range=(0.0, 0.0),
+    )
+    assert all(pose is not None for pose in poses)
+    bases = [float(pose[2, 3]) for pose in poses]
+    layer_step = (0.2 - 0.02 - 0.025) / 2
+    layers = {int((base - 0.1 + 0.025) / layer_step) for base in bases}
+    assert layers == {0, 1, 2}
+
+
+def test_place_in_pile_physics_release_layers_do_not_intersect():
+    rng = np.random.default_rng(23)
+    v, _ = _box((0.08, 0.08, 0.02))
+    fp = R.footprint(v, np.eye(3))
+    poses = R.place_in_pile(
+        rng,
+        [fp] * 4,
+        ((-0.05, 0.05), (-0.05, 0.05)),
+        0.1,
+        0.005,
+        0.11,
+        yaw_range=(0.0, 0.0),
+        drop_for_physics=True,
+        drop_height=0.25,
+    )
+    assert all(pose is not None for pose in poses)
+    bottoms = sorted(float((v @ pose[:3, :3].T + pose[:3, 3])[:, 2].min()) for pose in poses)
+    assert 0.35 <= bottoms[0] <= 0.37
+    assert all(b - a >= 0.025 for a, b in zip(bottoms, bottoms[1:]))
+
+
 def test_camera_trajectory_keeps_distance_and_target():
     rng = np.random.default_rng(3)
     cfg = CameraCfg(distance=(0.5, 0.5), distance_sweep=(0, 0), target_jitter=0.0)

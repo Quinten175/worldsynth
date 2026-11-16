@@ -59,6 +59,10 @@ scene:
                               # uses the yaw/pitch/roll ranges above (set them narrow) and line_jitter
   line_axis: x                # axis of the row in line_mode: x | y
   line_jitter: 0.02           # lateral jitter off the center line and along it [m]
+  pile_mode: false            # true: stack parts in randomized layers on the placement surface
+  pile_max_height: 0.6        # maximum pile height above the placement surface [m]
+  physics_settle: false       # true: drop CAD parts into the placement area and simulate with Isaac Lab/PhysX
+  physics_steps: 120           # steps per sequentially released part at 1/120 s per step
 
 randomization:
   lighting:

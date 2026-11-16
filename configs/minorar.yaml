@@ -18,7 +18,7 @@ dataset:
 scene:
   scene_usd: /home/minorar/VLA_Project/vdl_env.usd
   scene_surface: /World/Gitterbox
-  placement_z: 0.057          # deck of the Gitterbox (its bbox top 0.959 is the top of the cage walls)
+  placement_z: 0.057
   surface_margin: 0.03
   scene_camera: /World/pallet_camera
   scene_parts: null
@@ -28,20 +28,25 @@ scene:
   table:
     size: [1.2, 0.8, 0.75]
   walls: true
-  parts_per_clip: [3, 8]
+  parts_per_clip: [15, 17]
   max_instances_per_class: 40
   placement_area:
   - [-0.3, 0.3]
   - [-0.2, 0.2]
-  pose_mode: stable
-  min_spacing: 0.005
+  pose_mode: upright
+  min_spacing: 0.015
   min_distance: 0.0
-  yaw_range: [-5.0, 5.0]
-  pitch_range: [-2.0, 2.0]
-  roll_range: [-2.0, 2.0]
-  line_mode: true
+  yaw_range: [65.0, 115.0]
+  pitch_range: [-3.0, 3.0]
+  roll_range: [-3.0, 3.0]
+  line_mode: false
   line_axis: x
   line_jitter: 0.015
+  pile_mode: true
+  pile_max_height: 0.85
+  pile_layers: 3
+  physics_settle: true
+  physics_steps: 240
 randomization:
   lighting:
     dome_intensity: [200, 1200]
@@ -66,8 +71,8 @@ camera:
   distance: [0.45, 0.9]
   elevation: [35, 75]
   azimuth: [-70, 70]
-  azimuth_sweep: [-35.0, 35.0]
-  elevation_sweep: [-10.0, 10.0]
+  azimuth_sweep: [-5.0, 5.0]
+  elevation_sweep: [-5.0, 5.0]
   distance_sweep: [0, 0]
   focal_length: [18, 35]
   target_jitter: 0.08
