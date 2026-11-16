@@ -1,0 +1,34 @@
+{
+  "subjects": [
+    {
+      "description": "A pile of heavy industrial cast-metal yokes and brackets ({parts}) inside a large open shipping bin",
+      "appearance_details": "Solid grey cast metal with a fine, slightly grainy casting texture, rounded cast edges, visible seams and occasional machined faces; subtle handling scuffs and workshop dust, mostly matte with restrained natural highlights",
+      "relationship": "The components are loosely stacked and overlap naturally, as if collected for transport or inspection",
+      "location": "Inside a deep industrial bin lined with wrinkled, translucent clear plastic",
+      "relative_size": "The bin and metal parts fill most of the frame",
+      "pose": "Parts rest in a believable, irregular pile, with their weight supported by the pieces beneath them",
+      "action": "The parts and bin remain still; only a very slow, steady camera move"
+    }
+  ],
+  "background_setting": "A working factory floor around the open bin: worn grey concrete, faintly visible industrial rollers and equipment, and only partial glimpses of workers in high-visibility orange clothing at the frame edges. Keep the bin and parts as the clear focus.",
+  "lighting": {
+    "conditions": "Ordinary overhead factory lighting with soft ambient warehouse light, neutral and slightly cool",
+    "direction": "Broad overhead illumination with gentle reflections across the metal and plastic liner",
+    "shadows": "Soft, natural contact shadows between the overlapping parts; avoid dramatic or theatrical contrast"
+  },
+  "aesthetics": {
+    "composition": "Close high-angle view into the open bin, slightly oblique rather than perfectly top-down; the pile of parts is centered and clearly visible, with the plastic liner folded over the bin rim",
+    "color_scheme": "Natural grey metal, clear plastic, muted concrete, and small accents of industrial orange",
+    "mood_atmosphere": "Unstaged, practical factory-floor documentation"
+  },
+  "cinematography": {
+    "camera_motion": "Nearly static overhead-oblique camera with a very subtle, smooth push-in; no orbiting or abrupt movement",
+    "framing": "Close view into the bin, including its plastic-lined rim and enough surrounding factory floor to establish the setting",
+    "camera_angle": "High angle looking down into the bin, matching a person documenting the parts from nearby",
+    "depth_of_field": "Deep, natural focus across the bin and parts",
+    "lens_focal_length": "Natural wide-angle phone-camera perspective with mild edge distortion"
+  },
+  "style_medium": "Unedited documentary footage recorded on a modern phone in a real factory",
+  "artistic_style": "Photorealistic live-action appearance: preserve believable metal weight and geometry, subtle surface imperfections, realistic transparent plastic folds and reflections, natural exposure, and restrained color. Avoid a 3D-rendered, glossy, toy-like, or over-sharpened look.",
+  "context": "A real factory worker documenting a bin of cast-metal components during normal production"
+}

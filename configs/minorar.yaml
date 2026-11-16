@@ -17,10 +17,10 @@ dataset:
   coco_segmentation: rle
 scene:
   scene_usd: /home/minorar/VLA_Project/vdl_env.usd
-  scene_surface: /World/Gitterbox
+  scene_surface: /World/Cage_Right
   placement_z: 0.057
   surface_margin: 0.03
-  scene_camera: /World/pallet_camera
+  scene_camera: /World/Cage_Cam_Right
   scene_parts: null
   scene_parts_mode: place
   placement_in_view: true
