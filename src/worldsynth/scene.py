@@ -436,7 +436,7 @@ class WorkcellScene:
             if collision_mesh is None:
                 collision_mesh = (part.vertices, part.faces)
             self._create_collision_mesh(
-                f"{path}/physics_collision", collision_mesh[0], collision_mesh[1], "convexDecomposition"
+                f"{path}/physics_collision", collision_mesh[0], collision_mesh[1], "meshSimplification"
             )
             body = UsdPhysics.RigidBodyAPI.Apply(root)
             body.CreateKinematicEnabledAttr(False)
