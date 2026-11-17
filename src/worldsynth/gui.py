@@ -36,6 +36,8 @@ PROMPT_DIR = ROOT / "cache" / "gui_prompts"
 """Prompts (with the Prompts tab edits) handed to each run."""
 STAGES = ("generate", "prepare", "send", "fetch")
 """Steps of every run; recorded demos can add ``convert`` (see :func:`run_all_stages`)."""
+TRAIN_STAGES = ("train",)
+"""GR00T training stage."""
 ASKPASS = Path.home() / ".cache" / "worldsynth" / "askpass.sh"
 ALL_LOOKS = "all looks in configs/cosmos/prompts"
 RANDOM_CAMERA = "(random cameras around the parts)"
@@ -61,7 +63,7 @@ class GuiSettings:
     convert_python: str = ""
     """Interpreter with the converter's dependencies; empty: Isaac Lab's."""
     convert_out: str = ""
-    """Training dataset folder; empty: ``<dataset folder>/training_data``."""
+    """Training dataset folder; empty: ``<dataset folder>/training_data_v2.1``."""
     convert_args: str = CONVERT_ARGS
     cosmos_only: bool = False
     """Convert only the Cosmos demos, not the original ones too."""
@@ -131,6 +133,19 @@ class GuiSettings:
     spark_host: str = "100.123.185.58"
     spark_user: str = "h"
     password: str = field(default="", metadata={"secret": True})
+    # GR00T Training
+    train_mode: str = "visuals"
+    """Training mode: ``visuals`` (gr00t.experiment.launch_finetune) or ``teleops`` (scripts/gr00t_finetune.py)."""
+    train_base_model: str = "nvidia/GR00T-N1.7-3B"
+    train_dataset_path: str = ""
+    train_output_dir: str = ""
+    train_embodiment_tag: str = "NEW_EMBODIMENT"
+    train_max_steps: int = 5000
+    train_save_steps: int = 1000
+    train_num_gpus: int = 1
+    train_tune_visual: bool = True
+    train_tune_projector: bool = True
+    train_tune_diffusion_model: bool = True
 
     def to_saved(self) -> dict:
         """Settings to persist: everything except secrets."""
@@ -165,7 +180,7 @@ def demos_export_path(s: GuiSettings, root: Path = ROOT) -> Path:
 
 def training_path(s: GuiSettings, root: Path = ROOT) -> Path:
     """Folder that step 5 writes: the converted training dataset (e.g. LeRobot)."""
-    return Path(s.convert_out) if s.convert_out else dataset_path(s, root) / "training_data"
+    return Path(s.convert_out) if s.convert_out else dataset_path(s, root) / "training_data_v2.1"
 
 
 def cosmos_path(s: GuiSettings, root: Path = ROOT) -> Path:
@@ -343,14 +358,31 @@ def validate(s: GuiSettings, stages: tuple[str, ...] = STAGES, for_preview: bool
     """Problems that block running ``stages`` (or a preview), as messages for the user."""
     errors = []
     if "convert" in stages and not for_preview:
-        if s.source != "demos":
-            errors.append("Convert for training is for recorded demos (Source: Recorded demos).")
-        elif not s.convert_script or not Path(s.convert_script).expanduser().is_file():
-            errors.append("Choose the converter script (Training data).")
-        if s.convert_python and not Path(s.convert_python).expanduser().is_file():
-            errors.append(f"Converter Python not found: {s.convert_python}")
-        if "{inputs}" not in s.convert_args.split():
-            errors.append("Converter arguments need an {inputs} word.")
+        if s.source == "demos":
+            # Recorded demos path - needs user converter script
+            if not s.convert_script or not Path(s.convert_script).expanduser().is_file():
+                errors.append("Choose the converter script (Training data).")
+            if s.convert_python and not Path(s.convert_python).expanduser().is_file():
+                errors.append(f"Converter Python not found: {s.convert_python}")
+            if "{inputs}" not in s.convert_args.split():
+                errors.append("Converter arguments need an {inputs} word.")
+        else:
+            # CAD-rendered path - uses built-in WorldSynth -> LeRobot converter
+            pass  # No extra validation needed
+    if "train" in stages and not for_preview:
+        if not s.train_dataset_path or not Path(s.train_dataset_path).is_dir():
+            errors.append("Choose the LeRobot-format dataset directory for training.")
+        if not s.train_output_dir:
+            errors.append("Choose the output directory for training checkpoints.")
+        if not s.train_embodiment_tag:
+            errors.append("Enter the embodiment tag for training.")
+        if s.train_mode == "visuals":
+            if not s.train_base_model:
+                errors.append("Enter the base model path for VISUALS training.")
+        else:
+            train_script = Path(__file__).parent.parent / "scripts" / "gr00t_finetune.py"
+            if not train_script.is_file():
+                errors.append(f"Training script not found: {train_script}")
     if s.source == "demos" and (for_preview or "generate" in stages):
         if not s.demos_hdf5 or not Path(s.demos_hdf5).is_file():
             errors.append("Choose the HDF5 file with the recorded demos.")
@@ -456,6 +488,10 @@ def pipeline_command(
     Args:
         prompts, negative: Prompt files to use (e.g. from :func:`write_prompts`); default: the chosen files.
     """
+    # Handle train stage separately - it runs a different command
+    if stages == ("train",):
+        return train_command(s, root)
+
     cmd = [str(root / "scripts" / "run_pipeline.sh"), "--name", s.name, "--config", str(config)]
     cmd += ["--stages", ",".join(stages)]
     if s.cad_dir:
@@ -495,6 +531,34 @@ def pipeline_command(
 def run_all_stages(s: GuiSettings) -> tuple[str, ...]:
     """Steps of "Run all steps": recorded demos with a converter also get converted for training."""
     return STAGES + ("convert",) if s.source == "demos" and s.convert_script else STAGES
+
+
+def train_command(s: GuiSettings, root: Path = ROOT) -> list[str]:
+    """GR00T training command."""
+    gr00t_root = Path.home() / "Isaac-GR00T"
+    gr00t_python = gr00t_root / ".venv" / "bin" / "python"
+    if s.train_mode == "visuals":
+        cmd = [str(gr00t_python), "-m", "gr00t.experiment.launch_finetune"]
+        cmd += ["--base-model-path", s.train_base_model]
+        cmd += ["--dataset-path", s.train_dataset_path]
+        cmd += ["--embodiment-tag", s.train_embodiment_tag]
+        cmd += ["--output-dir", s.train_output_dir]
+        if s.train_tune_visual:
+            cmd += ["--tune_visual"]
+        if s.train_tune_projector:
+            cmd += ["--tune_projector"]
+        if s.train_tune_diffusion_model:
+            cmd += ["--tune_diffusion_model"]
+        cmd += ["--max-steps", str(s.train_max_steps)]
+        cmd += ["--save-steps", str(s.train_save_steps)]
+    else:
+        cmd = [str(gr00t_python), str(gr00t_root / "gr00t" / "experiment" / "launch_finetune.py")]
+        cmd += ["--dataset-path", s.train_dataset_path]
+        cmd += ["--num-gpus", str(s.train_num_gpus)]
+        cmd += ["--output-dir", s.train_output_dir]
+        cmd += ["--max-steps", str(s.train_max_steps)]
+        cmd += ["--save-steps", str(s.train_save_steps)]
+    return cmd
 
 
 def preview_command(s: GuiSettings, config: Path, out_dir: Path, isaaclab_python: str, root: Path = ROOT) -> list[str]:

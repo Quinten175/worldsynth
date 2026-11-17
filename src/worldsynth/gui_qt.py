@@ -105,6 +105,7 @@ STEP_LABELS = [
     ("3 Send to Cosmos", "send"),
     ("4 Fetch results", "fetch"),
     ("5 Convert for training", "convert"),
+    ("6 Train GR00T", "train"),
 ]
 DEMOS_GUIDE = (
     "<b>Steps</b> (buttons on the right):<br>"
@@ -247,7 +248,7 @@ class PromptEditor(QGroupBox):
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.form_container = QWidget()
         self.form_layout = QFormLayout(self.form_container)
-        self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
         self.scroll.setWidget(self.form_container)
         lay.addWidget(self.scroll, 1)
 
@@ -332,7 +333,7 @@ class PromptEditor(QGroupBox):
                 # Nested object - create a group box with its own form
                 group = QGroupBox(key.replace("_", " ").title())
                 group_layout = QFormLayout(group)
-                group_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+                group_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
                 nested_editor = NestedObjectEditor(value, path, self)
                 # NestedObjectEditor now creates its own layout, so we add it to the group
                 group_layout.addWidget(nested_editor)
@@ -459,7 +460,7 @@ class NestedObjectEditor(QWidget):
         self.widgets: dict[str, QWidget] = {}
         # Create our own form layout
         self.form_layout = QFormLayout(self)
-        self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
         # Populate with the data
         for key, value in data.items():
             npath = f"{path}.{key}"
@@ -526,7 +527,7 @@ class ArrayEditor(QWidget):
         # Object item - create a group box with form
         group = QGroupBox(f"Item {len(self.item_widgets) + 1}")
         group_layout = QFormLayout(group)
-        group_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        group_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
 
         item_widgets = {"_group": group}
         for key, value in item.items():
@@ -724,7 +725,7 @@ class MainWindow(QMainWindow):
     def section(self, title: str) -> QFormLayout:
         box = QGroupBox(title)
         form = QFormLayout(box)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
         self.pipe_layout.addWidget(box)
         self.sections[title] = box
         return form
@@ -777,18 +778,27 @@ class MainWindow(QMainWindow):
         d.addRow(guide)
         f.addRow(self.demo_box)
 
-        f = self.section("Results (demos)")
-        f.addRow("Cosmos demos", self.path_field("demos_out", "save", HDF5))
-        f.addRow("", self.bind("keep_missing", QCheckBox("Also write demos with only some cameras done")))
+        f = self.section("Training Data Conversion")
+        f.addRow("Output dataset", self.path_field("convert_out", "dir"))
+        f.addRow("", label("LeRobot-format v2.1 training dataset; empty: <dataset folder>/training_data_v2.1"))
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         f.addRow(line)
-        f.addRow("Converter", self.path_field("convert_script", "file", "Python (*.py);;All files (*)"))
-        f.addRow("Converter Python", self.path_field("convert_python", "file"))
-        f.addRow("Arguments", self.bind("convert_args", QLineEdit()))
-        f.addRow("Training dataset", self.path_field("convert_out", "dir"))
-        f.addRow("", hbox(self.bind("cosmos_only", QCheckBox("Cosmos demos only (no recorded demos)")),
-                          self.bind("convert_overwrite", QCheckBox("Overwrite"))))  # fmt: skip
+        # Recorded demos options (shown when source=demos)
+        self.demos_convert_widgets = [
+            self.path_field("convert_script", "file", "Python (*.py);;All files (*)"),
+            self.path_field("convert_python", "file"),
+            self.bind("convert_args", QLineEdit()),
+            self.bind("cosmos_only", QCheckBox("Cosmos demos only (no recorded demos)")),
+            self.bind("convert_overwrite", QCheckBox("Overwrite existing")),
+        ]
+        f.addRow("Converter script", self.demos_convert_widgets[0])
+        f.addRow("", label("Your robot project's converter, e.g. kuka/scripts/gr00t/convert_to_gr00t_lerobot.py"))
+        f.addRow("Converter Python", self.demos_convert_widgets[1])
+        f.addRow("", label("Interpreter with converter deps; empty = Isaac Lab's"))
+        f.addRow("Arguments", self.demos_convert_widgets[2])
+        f.addRow("", label("Template with {inputs} and {output}; default: --input_files {inputs} --output_dir {output}"))
+        f.addRow("", hbox(self.demos_convert_widgets[3], self.demos_convert_widgets[4]))  # fmt: skip
         f.addRow("", label(CONVERTER_HINT))
         self.result_paths = label("", "info")
         f.addRow(self.result_paths)
@@ -894,9 +904,29 @@ class MainWindow(QMainWindow):
         test.clicked.connect(self.test_connection)
         f.addRow("Password", hbox(self.password, test, stretch=False))
         f.addRow("", label("not saved; leave empty for SSH keys"))
+
+        f = self.section("GR00T Training")
+        f.addRow("Mode", self.radios("train_mode", [("visuals", "VISUALS"),
+                                                    ("teleops", "TELEOPS")]))
+        f.addRow("Base model", self.bind("train_base_model", QLineEdit()))
+        f.addRow("", label("e.g. nvidia/GR00T-N1.7-3B"))
+        f.addRow("Dataset path", self.path_field("train_dataset_path", "dir"))
+        f.addRow("", label("LeRobot-format 2.1 dataset directory"))
+        f.addRow("Output dir", self.path_field("train_output_dir", "dir"))
+        f.addRow("Embodiment tag", self.bind("train_embodiment_tag", QLineEdit()))
+        f.addRow("", label("e.g. NEW_EMBODIMENT"))
+        f.addRow("Max steps", self.bind("train_max_steps", spin(100, 100000, 100)))
+        f.addRow("Save steps", self.bind("train_save_steps", spin(100, 10000, 100)))
+        f.addRow("Num GPUs", self.bind("train_num_gpus", spin(1, 8, 1)))
+        f.addRow("", label("VISUALS options:"))
+        f.addRow("Tune visual", self.bind("train_tune_visual", QCheckBox("tune_visual")))
+        f.addRow("Tune projector", self.bind("train_tune_projector", QCheckBox("tune_projector")))
+        f.addRow("Tune diffusion model", self.bind("train_tune_diffusion_model", QCheckBox("tune_diffusion_model")))
+        f.addRow("", label("GR00T root: ~/Isaac-GR00T"))
+
         self.pipe_layout.addStretch(1)
 
-        for name in ("name", "dataset_dir", "demos_out", "convert_out", "convert_script"):
+        for name in ("name", "dataset_dir", "convert_out", "convert_script"):
             self.fields_widget(name).textChanged.connect(self.update_result_paths)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -918,10 +948,13 @@ class MainWindow(QMainWindow):
         demos = self.fields["source"][0]() == "demos"
         for title, box in self.sections.items():
             box.setVisible(title not in (("Parts (CAD / STL folder)", "Scene", "Dataset") if demos
-                                         else ("Results (demos)",)))  # fmt: skip
+                                         else ("Training Data Conversion",)))  # fmt: skip
         self.demo_box.setVisible(demos)
         self.step_btns[0].setText("1 Import demos" if demos else "1 Generate (Isaac Sim)")
-        self.step_btns[4].setEnabled(demos and not self.runner.running())
+        # Show/hide converter widgets for recorded demos
+        for w in self.demos_convert_widgets:
+            w.setVisible(demos)
+        self.step_btns[4].setEnabled(not self.runner.running())  # Convert always available now
         if demos:
             self.update_result_paths()
         else:
@@ -929,10 +962,15 @@ class MainWindow(QMainWindow):
 
     def update_result_paths(self):
         s = self.settings()
-        self.result_paths.setText(
-            f"Step 4 writes: {g.demos_export_path(s)}\n"
-            + (f"Step 5 writes: {g.training_path(s)}" if s.convert_script else "Step 5: choose a converter first")
-        )
+        if s.source == "demos":
+            self.result_paths.setText(
+                f"Step 4 writes: {g.demos_export_path(s)}\n"
+                + (f"Step 5 writes: {g.training_path(s)}" if s.convert_script else "Step 5: choose a converter first")
+            )
+        else:
+            self.result_paths.setText(
+                f"Step 5 writes: {g.training_path(s)} (built-in WorldSynth -> LeRobot converter)"
+            )
 
     def browse_scene(self):
         start = str(Path(self.scene_edit.text()).parent) if self.scene_edit.text() else str(g.ROOT)
@@ -1439,9 +1477,13 @@ class MainWindow(QMainWindow):
 
     def run_stages(self, stages: tuple[str, ...]):
         s = self.settings()
-        config = self.prepare(s, stages)
-        if config is None:
-            return
+        # Train stage doesn't need the pipeline config
+        if stages == ("train",):
+            config = None
+        else:
+            config = self.prepare(s, stages)
+            if config is None:
+                return
         try:
             looks, negative = g.write_prompts(s, self.all_prompt_edits())
         except ValueError as e:
@@ -1470,12 +1512,16 @@ class MainWindow(QMainWindow):
             last = stages[-1]
             if last == "convert":
                 self.write(f"training data: {g.training_path(s)}")
+            elif last == "train":
+                self.write(f"training complete. Checkpoints in: {s.train_output_dir}")
             self.write(f"done ({', '.join(stages)}). dataset: {data}  Cosmos folder: {batch}"
                        + (f"  next: {next_step[last]}" if last in next_step else ""))  # fmt: skip
 
         what = "running all steps" if stages == g.run_all_stages(s) else f"running step: {', '.join(stages)}"
         cmd = g.pipeline_command(s, config, stages=stages, prompts=looks, negative=negative)
-        self.start(cmd, g.ssh_env(s), f"{what} ({s.name})...", done)
+        # Train stage runs locally, not via SSH
+        env = os.environ.copy() if stages == ("train",) else g.ssh_env(s)
+        self.start(cmd, env, f"{what} ({s.name})...", done)
 
     def test_connection(self):
         s = self.settings()
