@@ -68,7 +68,7 @@ the desktop's light or dark theme. Every start uses the defaults;
   **Preview frame** shows the first frame with its labels without starting Isaac Sim.
 - **Results (demos):** where step 4 writes the **Cosmos demos** HDF5 (the recorded demos with the Cosmos camera
   images), and the converter of step **5 Convert for training**, which merges the recorded and the Cosmos demos into
-  one training dataset (from the robot project, e.g. the kuka GR00T/LeRobot converter, with the Python to run it, its
+  one training dataset (from the robot project, with the Python to run it, its
   arguments and the **training dataset** folder). The section shows the files both steps will write. **Run all
   steps** includes step 5 once a converter is chosen. In demos mode the CAD sections (Parts, Scene, Dataset) are
   hidden, and the Source section lists what each step does.
@@ -111,7 +111,7 @@ part size. **Run all steps** runs the whole pipeline; the **steps** can also run
 | 2 Make Cosmos videos | turns each clip into Cosmos input videos (rgb, depth, segmentation), prompts and specs | Cosmos folder `inputs/`, `specs/` |
 | 3 Send to Cosmos | uploads the batch to the Spark and starts Cosmos there; returns right away | Cosmos runs on the Spark |
 | 4 Fetch results | waits until Cosmos is done, copies the results back and imports them | Cosmos folder `results/`, `rgb_cosmos/` and COCO in the dataset, side-by-side videos; for demos also the HDF5 with Cosmos images |
-| 5 Convert for training | (demos only) runs the converter on the original and Cosmos HDF5 files | training dataset folder, e.g. LeRobot for GR00T |
+| 5 Convert for training | (demos only) runs the converter on the original and Cosmos HDF5 files | training dataset folder |
 
 A step uses what the previous ones left in the dataset and Cosmos folders, so steps can run at different times (for
 example send, close the GUI, and fetch the next day). **Stop** ends the local process; a Cosmos job already on the
@@ -203,16 +203,15 @@ scripts/run_pipeline.sh --demos ../IsaacLab/datasets/kuka/binpick_generated.hdf5
   COCO); failed demos are skipped. The Cosmos video keeps the camera's aspect ratio (square cameras give square
   videos), and all cameras of one demo get the same look.
 - **fetch** also writes a copy of the HDF5 in which each camera's images are the Cosmos frames; states, actions and
-  attributes are unchanged, so it converts to LeRobot/GR00T like the original. A demo is written only when all its
+  attributes are unchanged, so it converts to the training format like the original. A demo is written only when all its
   cameras have Cosmos frames. With several looks (`--looks`), every look gets its own file, `demos_cosmos_<look>.hdf5`.
 - **convert** (with `--convert-script`) runs the robot project's converter on the original HDF5 and every Cosmos HDF5,
   so each Cosmos demo becomes an extra training episode with the same states and actions. WorldSynth only runs the
-  script; it needs no robot code. For the kuka GR00T setup:
 
 ```bash
 scripts/run_pipeline.sh --demos ../IsaacLab/datasets/kuka/binpick_generated.hdf5 --name binpick_cosmos \
   --max-demos 10 --seg-names "1=robot,2=table,3=ground,4-5=bin,10-15=soup_can" \
-  --convert-script ../kuka/scripts/gr00t/convert_to_gr00t_lerobot.py --convert-python ~/venvs/convert/bin/python \
+  --convert-script ../kuka/scripts/convert_training_data.py --convert-python ~/venvs/convert/bin/python \
   --convert-out ../IsaacLab/datasets/kuka/binpick_lerobot_cosmos
 ```
 
@@ -224,8 +223,8 @@ The steps also run on their own:
 ```bash
 python scripts/demos.py import --hdf5 demos.hdf5 --cameras scene_cam wrist_cam --out output/demos --max_demos 10
 python scripts/demos.py export --dataset output/demos --out demos_cosmos.hdf5 [--keep_missing]
-python scripts/demos.py convert --hdf5 demos.hdf5 demos_cosmos.hdf5 --out lerobot_dataset \
-  --script ../kuka/scripts/gr00t/convert_to_gr00t_lerobot.py --python ~/venvs/convert/bin/python
+python scripts/demos.py convert --hdf5 demos.hdf5 demos_cosmos.hdf5 --out training_dataset \
+  --script ../kuka/scripts/convert_training_data.py --python ~/venvs/convert/bin/python
 ```
 
 `--keep_missing` writes demos where only some cameras have Cosmos frames (e.g. only the scene camera was sent) and
@@ -399,18 +398,7 @@ One-time steps, on the Spark:
 
    Use the `cu130` group (the Spark has CUDA 13 only). The `-train` group is needed even for inference.
 
-4. **Hugging Face cache ownership** (only if the GR00T Docker container also runs on the Spark). It runs as root, so
-   the cache it created (`~/.cache/huggingface`) belongs to root and Cosmos (running as your user) cannot download into it
-   (`PermissionError: ... ~/.cache/huggingface/hub/...`). Give it back to your user, without `sudo`:
-
-   ```bash
-   docker run --rm -v $HOME/.cache/huggingface:/hf --entrypoint chown gr00t-spark -R 1000:1000 /hf
-   ```
-
-   GR00T keeps working (root can use the folder regardless of owner). Repeat this if GR00T later downloads a new model
-   and Cosmos fails with the same error.
-
-5. **Check:**
+4. **Check:**
 
    ```bash
    cd ~/cosmos-work/cosmos/packages/cosmos3
@@ -457,7 +445,6 @@ Keep the spec in `specs/`: its `prompt_path` and `control_path` entries are rela
 | `depth` at 720p, 50 steps, 121 frames | about 175 s per step, about 2.4 h (stopped early) | 65 GB |
 
 The first run also downloads `Cosmos3-Nano` (about 35 GB) and the safety models (7 GB) into the Hugging Face cache.
-Do not run Cosmos and GR00T training at the same time: both need most of the 128 GB of unified memory.
 
 **Outputs** go to `transfer/outputs/Cosmos3-Nano/<spec name>/`: `vision.mp4` (the generated video), one
 `control_<type>.mp4` per control, and `sample_args.json`. A side-by-side video of the input, the controls, and the

@@ -9,9 +9,9 @@
     # 3. Cosmos frames -> a copy of the HDF5 with the camera images replaced (states and actions unchanged)
     python scripts/demos.py export --dataset output/kuka_demos --out datasets/kuka/binpick_cosmos.hdf5
 
-    # 4. original + Cosmos demos -> training data, with the robot project's converter (here LeRobot for GR00T)
+    # 4. original + Cosmos demos -> training data, with the robot project's converter
     python scripts/demos.py convert --hdf5 datasets/kuka/binpick_generated.hdf5 datasets/kuka/binpick_cosmos.hdf5 \
-        --out datasets/kuka/binpick_lerobot_cosmos --script ../kuka/scripts/gr00t/convert_to_gr00t_lerobot.py \
+        --out datasets/kuka/binpick_training_cosmos --script ../kuka/scripts/convert_training_data.py \
         --python ~/venvs/convert/bin/python
 
 scripts/run_pipeline.sh --demos ... does all of this in one go.

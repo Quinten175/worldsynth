@@ -5,8 +5,8 @@
 were recorded. Labels (masks, 2D boxes) come from the segmentation. The clips then go through the usual Cosmos steps.
 
 ``export_demos`` writes a copy of the HDF5 file in which each camera's images are replaced by the Cosmos frames,
-with states, actions and everything else unchanged, ready for the same conversion to a training dataset (e.g. the
-LeRobot format for GR00T) as the original demos. ``convert_command`` builds the command line of such a converter,
+with states, actions and everything else unchanged, ready for the same conversion to a training dataset as the
+original demos. ``convert_command`` builds the command line of such a converter,
 which belongs to the robot project (WorldSynth only runs it).
 
 Only ``h5py`` and the HDF5 layout of Isaac Lab's recorder (``data/<demo>/obs/...``) are assumed; nothing robot or
@@ -269,10 +269,10 @@ def convert_command(
     python: str | None = None,
     args: str = CONVERT_ARGS,
 ) -> list[str]:
-    """Command line of a converter from Isaac Lab HDF5 demos to a training dataset (e.g. LeRobot for GR00T).
+    """Command line of a converter from Isaac Lab HDF5 demos to a training dataset.
 
     Args:
-        script: The converter script, e.g. ``kuka/scripts/gr00t/convert_to_gr00t_lerobot.py``.
+        script: The converter script, e.g. ``/path/to/convert_training_data.py``.
         python: Interpreter with the converter's dependencies; default: the current one.
         args: Argument template; a ``{inputs}`` word expands to all input files, ``{output}`` to the output folder.
     """
