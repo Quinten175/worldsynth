@@ -1,8 +1,8 @@
 {
   "subjects": [
     {
-      "description": "A pile of heavy industrial cast-metal yokes and brackets ({parts}) inside a large open shipping bin",
-      "appearance_details": "Solid grey cast metal with a fine, slightly grainy casting texture, rounded cast edges, visible seams and occasional machined faces; subtle handling scuffs and workshop dust, mostly matte with restrained natural highlights",
+      "description": "A pile of heavy industrial dark sand cast iron yokes and brackets ({parts}) inside a large open shipping bin",
+      "appearance_details": "Solid dark grey sand cast iron with a fine,  grainy casting texture, rounded cast edges, visible seams; subtle handling scuffs and workshop dust, mostly matte with restrained natural highlights",
       "relationship": "The components are loosely stacked and overlap naturally, as if collected for transport or inspection",
       "location": "Inside a deep industrial bin lined with wrinkled, translucent clear plastic",
       "relative_size": "The bin and metal parts fill most of the frame",
@@ -18,7 +18,7 @@
   },
   "aesthetics": {
     "composition": "Close high-angle view into the open bin, slightly oblique rather than perfectly top-down; the pile of parts is centered and clearly visible, with the plastic liner folded over the bin rim",
-    "color_scheme": "Natural grey metal, clear plastic, muted concrete, and small accents of industrial orange",
+    "color_scheme": "Natural dark grey metal, clear plastic, muted concrete, and small accents of industrial orange",
     "mood_atmosphere": "Unstaged, practical factory-floor documentation"
   },
   "cinematography": {
@@ -30,5 +30,5 @@
   },
   "style_medium": "Unedited documentary footage recorded on a modern phone in a real factory",
   "artistic_style": "Photorealistic live-action appearance: preserve believable metal weight and geometry, subtle surface imperfections, realistic transparent plastic folds and reflections, natural exposure, and restrained color. Avoid a 3D-rendered, glossy, toy-like, or over-sharpened look.",
-  "context": "A real factory worker documenting a bin of cast-metal components during normal production"
+  "context": "A real factory worker documenting a bin of sand cast iron components during normal production"
 }

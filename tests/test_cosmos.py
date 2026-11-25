@@ -97,5 +97,6 @@ def test_clutter_subject_only_when_clutter_exists():
 def test_aspect_mismatch_is_refused():
     cosmos.check_aspect((1248, 720), (832, 480))
     cosmos.check_aspect((1200, 720), (320, 192))
+    cosmos.check_aspect((1280, 720), (1280, 720))
     with pytest.raises(ValueError, match="1248x720"):
         cosmos.check_aspect((1280, 720), (832, 480))

@@ -28,6 +28,32 @@ def test_flat_rotations_put_each_axis_down():
     assert downs == {(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)}
 
 
+def test_horizontal_rotations_keep_the_longest_axis_level():
+    vertices, _ = _box((0.2, 0.9, 0.3))
+    rotations = R.horizontal_rotations(vertices)
+    assert len(rotations) == 4
+    assert all(abs(float((r @ [0.0, 1.0, 0.0])[2])) < 1e-9 for r in rotations)
+
+
+def test_horizontal_yokes_fit_and_place_in_scene_area():
+    vertices, _ = _box((0.268, 0.971, 0.231))
+    rotations = R.horizontal_rotations(vertices)
+    footprints = [R.footprint(vertices, rotations[i % len(rotations)]) for i in range(17)]
+    poses = R.place_in_pile(
+        np.random.default_rng(23),
+        footprints,
+        ((0.41, 1.59), (-1.2875, -0.5100)),
+        0.057,
+        0.015,
+        0.85,
+        max_layers=17,
+        yaw_range=(65.0, 115.0),
+        drop_for_physics=True,
+        drop_height=1.2,
+    )
+    assert all(pose is not None for pose in poses)
+
+
 def _box(size):
     import trimesh
 
@@ -73,6 +99,7 @@ def test_place_in_pile_stacks_parts_within_height_limit():
         0.005,
         0.11,
         yaw_range=(0.0, 0.0),
+        drop_for_physics=False,
     )
     assert all(pose is not None for pose in poses)
     bases = [float((v @ pose[:3, :3].T + pose[:3, 3])[:, 2].min()) for pose in poses]
@@ -117,6 +144,7 @@ def test_place_in_pile_respects_max_layers():
         0.2,
         max_layers=3,
         yaw_range=(0.0, 0.0),
+        drop_for_physics=False,
     )
     assert all(pose is not None for pose in poses)
     bases = [float(pose[2, 3]) for pose in poses]
@@ -156,11 +184,15 @@ def test_camera_trajectory_keeps_distance_and_target():
 
 def test_load_config_overrides(tmp_path):
     cfg_file = tmp_path / "c.yaml"
-    cfg_file.write_text("dataset:\n  num_clips: 3\nscene:\n  placement_area: [[-0.1, 0.1], [-0.2, 0.2]]\n")
+    cfg_file.write_text(
+        "dataset:\n  num_clips: 3\nscene:\n  placement_area: [[-0.1, 0.1], [-0.2, 0.2]]\n"
+        "  physics_drop_height: 1.5\n"
+    )
     cfg = load_config(cfg_file, ["dataset.resolution=[640,360]", "camera.focal_length=[20,30]"])
     assert cfg.dataset.num_clips == 3
     assert cfg.dataset.resolution == (640, 360)
     assert cfg.scene.placement_area == ((-0.1, 0.1), (-0.2, 0.2))
+    assert cfg.scene.physics_drop_height == 1.5
     assert cfg.camera.focal_length == (20, 30)
     with pytest.raises(KeyError):
         load_config(None, ["dataset.num_clip=3"])

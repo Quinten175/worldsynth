@@ -22,7 +22,7 @@ DEFAULT_SPEC = {
     "model_mode": "video2video",
     "resolution": "480",
     "aspect_ratio": "16,9",
-    "shift": 10.0,
+    "shift": 4.0,
     "num_steps": 50,
     "seed": 2026,
     "num_video_frames_per_chunk": 121,
@@ -38,9 +38,9 @@ DEFAULT_SPEC = {
 """Spec fields from the Cosmos3 Transfer runs that worked on the DGX Spark."""
 
 DEFAULT_CONTROLS = {
-    "edge": {"weight": 1.0, "preset_edge_threshold": "medium"},
-    "depth": {"weight": 0.5},
-    "seg": {"weight": 0.5},
+    "edge": {"weight": 0.4, "preset_edge_threshold": "high"},
+    "depth": {"weight": 0.3},
+    "seg": {"weight": 0.2},
 }
 
 
@@ -48,6 +48,7 @@ COSMOS_OUTPUT_SIZES = {
     ("256", "16,9"): (320, 192),
     ("256", "1,1"): (256, 256),
     ("480", "16,9"): (832, 480),
+    ("720", "16,9"): (1280, 720),
 }
 """Output (width, height) per Cosmos3 resolution preset and aspect ratio, measured on the DGX Spark."""
 

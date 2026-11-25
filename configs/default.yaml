@@ -48,8 +48,8 @@ scene:
   walls: true
   parts_per_clip: [3, 8]
   max_instances_per_class: 3
-  placement_area: [[-0.3, 0.3], [-0.2, 0.2]]  # x, y range on the table top
-  pose_mode: stable           # stable (physical resting poses) | flat (6 box faces) | upright (CAD z up)
+  placement_area: [[-0.3, 0.3], [-0.2, 0.2]]  # x/y bounds; with scene_usd these offset from the surface center
+  pose_mode: stable           # stable | flat | horizontal (longest CAD axis level) | upright
   min_spacing: 0.01           # extra clearance between part footprints [m]
   min_distance: 0.0           # minimum center-to-center distance between parts [m]; if > 0, overrides min_spacing
   yaw_range: [-180.0, 180.0]  # range of yaw rotation (about world z) for placed parts [deg]
@@ -62,6 +62,7 @@ scene:
   pile_mode: false            # true: stack parts in randomized layers on the placement surface
   pile_max_height: 0.6        # maximum pile height above the placement surface [m]
   physics_settle: false       # true: drop CAD parts into the placement area and simulate with Isaac Lab/PhysX
+  physics_drop_height: 1.2    # height above the placement surface [m] from which parts are released
   physics_steps: 120           # steps per sequentially released part at 1/120 s per step
 
 randomization:

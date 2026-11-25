@@ -134,6 +134,12 @@ def flat_rotations() -> list[np.ndarray]:
     return rots
 
 
+def horizontal_rotations(vertices: np.ndarray) -> list[np.ndarray]:
+    """Rotations that keep a part's longest local axis horizontal, resting it on its side."""
+    long_axis = int(np.argmax(np.ptp(vertices, axis=0)))
+    return [r for r in flat_rotations() if abs(float(r[2, long_axis])) < 1e-9]
+
+
 def stable_rotations(vertices: np.ndarray, faces: np.ndarray, max_poses: int = 8, min_prob: float = 0.02):
     """Resting orientations of a rigid part on a plane, from its convex hull (via trimesh).
 
@@ -359,8 +365,8 @@ def place_in_pile(
     pitch_range: tuple[float, float] = (0.0, 0.0),
     roll_range: tuple[float, float] = (0.0, 0.0),
     max_tries: int = 200,
-    drop_for_physics: bool = False,
-    drop_height: float = 0.25,
+    drop_for_physics: bool = True,
+    drop_height: float = 1,
 ) -> list[np.ndarray | None]:
 
     if max_height <= 0:

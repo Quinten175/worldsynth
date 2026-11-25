@@ -283,3 +283,170 @@ def convert_command(
     for word in words:
         cmd += [str(p) for p in inputs] if word == "{inputs}" else [word.replace("{output}", str(output))]
     return cmd
+
+
+def convert_worldsynth_to_lerobot(
+    dataset_dir: str | Path,
+    output_dir: str | Path,
+    image_dir: str = "rgb_cosmos",
+    fps: int = 20,
+    overwrite: bool = False,
+) -> Path:
+
+    import shutil
+    import h5py
+    import pandas as pd
+
+    dataset_dir, output_dir = Path(dataset_dir), Path(output_dir)
+    if output_dir.exists():
+        if overwrite:
+            shutil.rmtree(output_dir)
+        else:
+            raise FileExistsError(f"{output_dir} exists; use overwrite=True")
+
+    meta = json.loads((dataset_dir / "dataset.json").read_text())
+    categories = {c["id"]: c["name"] for c in meta["categories"]}
+
+    # Create LeRobot structure
+    output_dir.mkdir(parents=True, exist_ok=True)
+    meta_dir = output_dir / "meta"
+    meta_dir.mkdir(parents=True)
+    data_dir = output_dir / "data" / "chunk-000"
+    data_dir.mkdir(parents=True)
+    videos_dir = output_dir / "videos" / "chunk-000"
+    videos_dir.mkdir(parents=True)
+
+    # Write meta/info.json
+    info = {
+        "codebase_version": "v2.0",
+        "robot_type": "synthetic",
+        "fps": fps,
+        "features": {
+            "observation.images": {
+                "dtype": "video",
+                "shape": [720, 1248, 3],  # Default resolution, will be updated from first frame
+                "names": ["height", "width", "channel"],
+            },
+            "observation.state": {
+                "dtype": "float32",
+                "shape": [0],  # No robot state for synthetic data
+                "names": [],
+            },
+            "action": {
+                "dtype": "float32",
+                "shape": [0],  # No actions for synthetic data
+                "names": [],
+            },
+            "timestamp": {
+                "dtype": "float32",
+                "shape": [1],
+                "names": ["timestamp"],
+            },
+            "frame_index": {
+                "dtype": "int64",
+                "shape": [1],
+                "names": ["frame_index"],
+            },
+            "episode_index": {
+                "dtype": "int64",
+                "shape": [1],
+                "names": ["episode_index"],
+            },
+            "index": {
+                "dtype": "int64",
+                "shape": [1],
+                "names": ["index"],
+            },
+            "task_index": {
+                "dtype": "int64",
+                "shape": [1],
+                "names": ["task_index"],
+            },
+        },
+    }
+    (meta_dir / "info.json").write_text(json.dumps(info, indent=2))
+
+    # Write meta/tasks.jsonl
+    tasks = [{"task_index": 0, "task": "synthetic_object_detection"}]
+    (meta_dir / "tasks.jsonl").write_text("\n".join(json.dumps(t) for t in tasks))
+
+    # Write meta/episodes.jsonl
+    clips = sorted((dataset_dir / "clips").glob("clip_*"))
+    episodes = []
+    for ep_idx, clip in enumerate(clips):
+        clip_meta = json.loads((clip / "clip.json").read_text())
+        num_frames = len(list((clip / image_dir).glob("*.png")))
+        episodes.append({
+            "episode_index": ep_idx,
+            "tasks": [0],
+            "length": num_frames,
+        })
+    (meta_dir / "episodes.jsonl").write_text("\n".join(json.dumps(e) for e in episodes))
+
+    # Write meta/episodes_stats.jsonl
+    episodes_stats = []
+    for ep_idx, clip in enumerate(clips):
+        clip_meta = json.loads((clip / "clip.json").read_text())
+        num_frames = len(list((clip / image_dir).glob("*.png")))
+        episodes_stats.append({
+            "episode_index": ep_idx,
+            "stats": {
+                "observation.images": {"min": 0, "max": 255, "mean": 127.5, "std": 73.5, "count": num_frames},
+            },
+        })
+    (meta_dir / "episodes_stats.jsonl").write_text("\n".join(json.dumps(e) for e in episodes_stats))
+
+    # Process each clip -> episode parquet
+    # Update image shape from first frame
+    first_clip = clips[0] if clips else None
+    if first_clip:
+        first_frame = sorted((first_clip / image_dir).glob("*.png"))
+        logger.info("Looking for frames in %s, found %d", first_clip / image_dir, len(first_frame))
+        if first_frame:
+            import cv2
+            first_img = cv2.imread(str(first_frame[0]))
+            h, w = first_img.shape[:2]
+            info["features"]["observation.images"]["shape"] = [h, w, 3]
+            # Rewrite info.json with correct shape
+            (meta_dir / "info.json").write_text(json.dumps(info, indent=2))
+
+    for ep_idx, clip in enumerate(clips):
+        frames = sorted((clip / image_dir).glob("*.png"))
+        labels = sorted((clip / "labels").glob("*.json"))
+        logger.info("Clip %s: %d frames, %d labels", clip.name, len(frames), len(labels))
+
+        # Create video
+        import cv2
+        if frames:
+            first = cv2.imread(str(frames[0]))
+            h, w = first.shape[:2]
+            video_path = videos_dir / f"episode_{ep_idx:06d}.avi"
+            writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"MJPG"), fps, (w, h))
+            if not writer.isOpened():
+                logger.error("Cannot create video for episode %d", ep_idx)
+            else:
+                for f in frames:
+                    writer.write(cv2.imread(str(f)))
+                writer.release()
+                logger.debug("Created video: %s", video_path)
+
+        # Create parquet
+        rows = []
+        for frame_idx, (img_path, label_path) in enumerate(zip(frames, labels)):
+            label = json.loads(label_path.read_text())
+            rows.append({
+                "observation.images": str(video_path.relative_to(output_dir)).replace(".mp4", ".avi"),
+                "observation.state": np.array([], dtype=np.float32),
+                "action": np.array([], dtype=np.float32),
+                "timestamp": np.array([frame_idx / fps], dtype=np.float32),
+                "frame_index": np.array([frame_idx], dtype=np.int64),
+                "episode_index": np.array([ep_idx], dtype=np.int64),
+                "index": np.array([frame_idx], dtype=np.int64),
+                "task_index": np.array([0], dtype=np.int64),
+            })
+        if rows:
+            df = pd.DataFrame(rows)
+            df.to_parquet(data_dir / f"episode_{ep_idx:06d}.parquet", index=False)
+
+    logger.info("Converted %d clips to LeRobot format at %s", len(clips), output_dir)
+    return output_dir

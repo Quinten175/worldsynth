@@ -63,10 +63,13 @@ def load_parts(cfg: WorldSynthCfg, scene_parts: list | None = None) -> tuple[lis
         elif mode == "flat":
             rots = R.flat_rotations()
             probs = [1.0 / len(rots)] * len(rots)
+        elif mode == "horizontal":
+            rots = R.horizontal_rotations(p.vertices)
+            probs = [1.0 / len(rots)] * len(rots)
         elif mode == "upright":
             rots, probs = [np.eye(3)], [1.0]
         else:
-            raise ValueError(f"scene.pose_mode must be stable, flat or upright, got {mode!r}")
+            raise ValueError(f"scene.pose_mode must be stable, flat, horizontal or upright, got {mode!r}")
         sil = simplify_for_silhouette(p.vertices, p.faces)
         entries.append(PartEntry(part=p, class_id=class_ids[p.category], rotations=rots, probs=probs, silhouette=sil))
         logger.info(
@@ -169,7 +172,8 @@ def sample_clip(
             yaw_range=sc.yaw_range,
             pitch_range=sc.pitch_range,
             roll_range=sc.roll_range,
-            drop_for_physics=False,
+            drop_for_physics=sc.physics_settle,
+            drop_height=sc.physics_drop_height,
         )
         if sum(pose is not None for pose in poses) < len(chosen):
             raise RuntimeError(
@@ -260,7 +264,7 @@ def build_clip(scene: WorkcellScene, clip: dict, entries: list[PartEntry]) -> tu
             if p["pose"] is None:
                 p["pose"] = scene.scene_part_pose(path)
         else:
-            path = scene.add_part(i, e.part, p["pose"], p["material"], collision_mesh=e.silhouette)
+            path = scene.add_part(i, e.part, p["pose"], p["material"])
         objects.append(
             SceneObject(
                 instance_id=i + 1,

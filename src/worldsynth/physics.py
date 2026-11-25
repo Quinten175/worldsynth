@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pxr import Gf, UsdPhysics
@@ -23,10 +22,16 @@ class IsaacLabSettler:
             body = UsdPhysics.RigidBodyAPI(prim)
             if not body:
                 raise RuntimeError(f"Part {obj.prim_path} has no rigid-body API")
+            
             collider_prim = prim.GetChild("physics_collision")
             collision = UsdPhysics.CollisionAPI(collider_prim)
             if not collision:
                 raise RuntimeError(f"Part {obj.prim_path} has no collision API")
+            
+            # Apply MeshCollisionAPI and set the approximation to convex hull
+            mesh_collision = UsdPhysics.MeshCollisionAPI.Apply(collider_prim)
+            mesh_collision.GetApproximationAttr().Set("convexHull")
+
             collision.GetCollisionEnabledAttr().Set(False)
             body.GetKinematicEnabledAttr().Set(True)
             body.GetVelocityAttr().Set(Gf.Vec3f(0.0))

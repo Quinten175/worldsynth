@@ -193,7 +193,17 @@ class WorkcellScene:
         if hi[0] - lo[0] <= 2 * m or hi[1] - lo[1] <= 2 * m:
             raise ValueError(f"scene_surface {sc.scene_surface} is smaller than twice surface_margin ({m} m)")
         self.table_z = float(hi[2]) if sc.placement_z is None else float(sc.placement_z)
-        self.placement_area = ((lo[0] + m, hi[0] - m), (lo[1] + m, hi[1] - m))
+        center = 0.5 * (lo[:2] + hi[:2])
+        (ax0, ax1), (ay0, ay1) = sc.placement_area
+        self.placement_area = (
+            (max(lo[0] + m, center[0] + ax0), min(hi[0] - m, center[0] + ax1)),
+            (max(lo[1] + m, center[1] + ay0), min(hi[1] - m, center[1] + ay1)),
+        )
+        if any(bounds[0] >= bounds[1] for bounds in self.placement_area):
+            raise ValueError(
+                f"scene.placement_area {sc.placement_area} does not overlap scene_surface {sc.scene_surface} "
+                f"after applying surface_margin ({m} m)"
+            )
         self.bounds = ((lo[0] + 0.005, hi[0] - 0.005), (lo[1] + 0.005, hi[1] - 0.005))
         self.physics_collision_root = str(surface.GetPath())
 

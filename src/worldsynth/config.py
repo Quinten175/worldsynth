@@ -108,10 +108,10 @@ class SceneCfg:
     parts_per_clip: IntRange = (3, 8)
     max_instances_per_class: int = 3
     placement_area: tuple[Range, Range] = ((-0.3, 0.3), (-0.2, 0.2))
-    """x and y range on the table top where parts are placed [m]."""
+    """Placement bounds [m]. For a USD scene, these are offsets from the scene_surface bounding-box center."""
     pose_mode: str = "stable"
-    """``stable`` (resting poses from the convex hull), ``flat`` (one of the 6 box faces down) or ``upright``
-    (CAD z axis up)."""
+    """``stable`` (resting poses from the convex hull), ``flat`` (one of the 6 box faces down), ``horizontal``
+    (longest CAD axis horizontal) or ``upright`` (CAD z axis up)."""
     min_spacing: float = 0.01
     """Extra clearance between part footprints [m]."""
     min_distance: float = 0.0
@@ -138,6 +138,8 @@ class SceneCfg:
     """Target maximum number of randomized pile layers; None selects the layer count automatically."""
     physics_settle: bool = False
     """True: drop CAD parts into the placement area and simulate their motion with Isaac Lab/PhysX."""
+    physics_drop_height: float = 1.2
+    """Height above the placement surface [m] from which parts are released when physics_settle is enabled."""
     physics_steps: int = 120
     """Physics steps per sequentially released part (at 1/120 s per step)."""
 

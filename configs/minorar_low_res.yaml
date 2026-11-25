@@ -31,21 +31,22 @@ scene:
   parts_per_clip: [15, 17]
   max_instances_per_class: 40
   placement_area:
-  - [-0.3, 0.3]
-  - [-0.2, 0.2]
-  pose_mode: upright
+  - [-0.59, 0.59]
+  - [-0.388, 0.388]
+  pose_mode: horizontal
   min_spacing: 0.015
   min_distance: 0.0
-  yaw_range: [65.0, 115.0]
-  pitch_range: [-3.0, 3.0]
-  roll_range: [-3.0, 3.0]
+  yaw_range: [87.0, 93.0]
+  pitch_range: [0.0, 0.0]
+  roll_range: [0.0, 0.0]
   line_mode: false
   line_axis: x
   line_jitter: 0.015
-  pile_mode: true
+  pile_mode: false
   pile_max_height: 0.85
-  pile_layers: 3
+  pile_layers: 2
   physics_settle: true
+  physics_drop_height: 0.15
   physics_steps: 240
 randomization:
   lighting:
