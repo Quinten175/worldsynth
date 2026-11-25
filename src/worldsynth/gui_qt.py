@@ -126,7 +126,8 @@ PROMPTS_HINT = (
 )
 VIDEOS_HINT = (
     "Isaac Sim clips play from their frames: view them as rgb, with labels, depth, segmentation or instance masks. "
-    "The video plays in the large area on the right."
+    "Depth and segmentation PNGs are numeric maps; raw image viewers may show them nearly black. Use the view selector "
+    "here for colorized previews. The video plays in the large area on the right."
 )
 
 
@@ -633,6 +634,7 @@ class MainWindow(QMainWindow):
         self.comments = g.config_comments()
         self.select = GuiSettings()  # camera/surface/parts to select once a scene is read
         self.after_run: Callable[[int], None] | None = None
+        self._user_stopped = False
         self.runner = Runner()
         self.runner.line.connect(self.write)
         self.runner.finished.connect(self._run_finished)
@@ -1404,6 +1406,7 @@ class MainWindow(QMainWindow):
         noise = re.compile(r"^\[worldsynth\]|Error|Traceback|^\s+File |Exception|^\S+Error")
         self.write(f"\n$ {' '.join(shlex.quote(c) for c in cmd)}")
         self.after_run = after
+        self._user_stopped = False
         self.set_busy(True, what)
         self.runner.start(cmd, env, noise.search if quiet else None)
 
@@ -1449,6 +1452,8 @@ class MainWindow(QMainWindow):
             if code == 0 and (clip / "rgb" / "000000.png").exists():
                 self.show_image(clip / "rgb" / "000000.png", clip / "labels" / "000000.json",
                                 "preview: frame 0 with labels")  # fmt: skip
+            elif code != 0 and self._user_stopped:
+                self.write("preview stopped by user.")
             else:
                 self.write("preview failed, see the log above")
 
@@ -1471,7 +1476,7 @@ class MainWindow(QMainWindow):
 
         def done(code):
             if code != 0:
-                self.write("stopped with an error, see the log above")
+                self.write("run stopped by user." if self._user_stopped else "run failed, see the log above")
                 return
             clips = sorted((data / "clips").glob("*/rgb")) if (data / "clips").is_dir() else []
             clip = clips[0].parent if clips else data / "clips" / "clip_0000"
@@ -1505,9 +1510,10 @@ class MainWindow(QMainWindow):
 
     def stop(self):
         if self.runner.running():
+            self._user_stopped = True
             self.runner.stop()
-            self.write("stopped. A Cosmos job already started on the Spark keeps running; use '4 Fetch results' later "
-                       "to wait for it and copy the results back.")  # fmt: skip
+            self.write("Stopping local run. Any Cosmos job already started on the Spark keeps running; use "
+                       "'4 Fetch results' later if needed.")  # fmt: skip
 
     def open_dir(self, path: Path):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path if path.exists() else path.parent)))

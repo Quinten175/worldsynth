@@ -7,6 +7,7 @@ uniformly per clip. Lengths are in meters, angles in degrees unless the field na
 from __future__ import annotations
 
 import dataclasses
+import math
 import types
 import typing
 from dataclasses import dataclass, field
@@ -189,6 +190,38 @@ class RandomizationCfg:
 
 
 @dataclass
+class VolumeFillSpawnCfg:
+    x: Range = (0.9, 1.1)
+    y: Range = (-1.0, -0.8)
+    z: Range = (2.5, 3.5)
+    rotation_xyz: tuple[float, float, float] = (0.0, 0.0, -90.0)
+    scale: float = 0.001
+
+
+@dataclass
+class VolumeFillWallsCfg:
+    center: tuple[float, float] = (1.0, -0.9)
+    size: tuple[float, float] = (1.2, 0.9)
+    thickness: float = 0.01
+    min_z: float = 0.0
+    max_z: float = 4.0
+
+
+@dataclass
+class VolumeFillCfg:
+    enabled: bool = False
+    asset: str | None = None
+    category: str = "Yoke"
+    count: int = 10
+    mass: float = 0.5
+    spawn: VolumeFillSpawnCfg = field(default_factory=VolumeFillSpawnCfg)
+    walls: VolumeFillWallsCfg = field(default_factory=VolumeFillWallsCfg)
+    initial_wait_seconds: float = 1.0
+    drop_interval_seconds: float = 2.0
+    settle_seconds: float = 15.0
+
+
+@dataclass
 class CameraCfg:
     distance: Range = (0.45, 0.9)
     """Distance from the look-at target [m]."""
@@ -212,6 +245,7 @@ class WorldSynthCfg:
     dataset: DatasetCfg = field(default_factory=DatasetCfg)
     scene: SceneCfg = field(default_factory=SceneCfg)
     randomization: RandomizationCfg = field(default_factory=RandomizationCfg)
+    volume_fill: VolumeFillCfg = field(default_factory=VolumeFillCfg)
     camera: CameraCfg = field(default_factory=CameraCfg)
 
     def to_dict(self) -> dict:
@@ -256,8 +290,8 @@ def _to_tuple(value):
 def load_config(path: str | Path | None, overrides: list[str] | None = None) -> WorldSynthCfg:
     """Load a YAML config and apply ``section.key=value`` overrides (values are parsed as YAML).
 
-    Relative paths (``cad.dir``, ``cad.cache_dir``, ``output.dir``, ``scene.scene_usd``) are resolved against
-    the current working directory.
+    Relative paths (``cad.dir``, ``cad.cache_dir``, ``output.dir``, ``scene.scene_usd``, ``volume_fill.asset``) are
+    resolved against the current working directory.
     """
     data: dict = {}
     base = Path.cwd()
@@ -276,7 +310,74 @@ def load_config(path: str | Path | None, overrides: list[str] | None = None) -> 
     cfg.output.dir = _resolve(base, cfg.output.dir)
     if cfg.scene.scene_usd:
         cfg.scene.scene_usd = _resolve(base, cfg.scene.scene_usd)
+    if cfg.volume_fill.asset:
+        cfg.volume_fill.asset = _resolve(base, cfg.volume_fill.asset)
+    _validate_volume_fill(cfg)
     return cfg
+
+
+def _validate_volume_fill(cfg: WorldSynthCfg) -> None:
+    fill = cfg.volume_fill
+    if not fill.enabled:
+        return
+    if not fill.asset:
+        raise ValueError("volume_fill.asset is required when volume_fill.enabled is true")
+    if not Path(fill.asset).is_file():
+        raise FileNotFoundError(f"Volume-fill USD asset not found: {fill.asset}")
+    if Path(fill.asset).suffix.lower() not in {".usd", ".usda", ".usdc", ".usdz"}:
+        raise ValueError("volume_fill.asset must be a USD file")
+    if not isinstance(fill.category, str) or not fill.category.strip():
+        raise ValueError("volume_fill.category cannot be empty")
+    if not isinstance(fill.count, int) or isinstance(fill.count, bool) or fill.count < 1:
+        raise ValueError(f"volume_fill.count must be at least 1, got {fill.count}")
+    if not _all_finite((fill.mass, fill.spawn.scale)) or fill.mass <= 0 or fill.spawn.scale <= 0:
+        raise ValueError("volume_fill.mass and volume_fill.spawn.scale must be positive")
+    times = (fill.initial_wait_seconds, fill.drop_interval_seconds, fill.settle_seconds)
+    if (
+        not _all_finite(times)
+        or fill.initial_wait_seconds < 0
+        or fill.drop_interval_seconds <= 0
+        or fill.settle_seconds < 0
+    ):
+        raise ValueError(
+            "volume_fill.initial_wait_seconds and settle_seconds cannot be negative; "
+            "drop_interval_seconds must be positive"
+        )
+    for name, bounds in (("x", fill.spawn.x), ("y", fill.spawn.y), ("z", fill.spawn.z)):
+        if not isinstance(bounds, tuple) or len(bounds) != 2 or not _all_finite(bounds) or bounds[0] > bounds[1]:
+            raise ValueError(f"volume_fill.spawn.{name} must be an ordered [min, max] range")
+    if (
+        not isinstance(fill.spawn.rotation_xyz, tuple)
+        or len(fill.spawn.rotation_xyz) != 3
+        or not _all_finite(fill.spawn.rotation_xyz)
+    ):
+        raise ValueError("volume_fill.spawn.rotation_xyz must have three angles")
+    if (
+        not isinstance(fill.walls.center, tuple)
+        or not isinstance(fill.walls.size, tuple)
+        or len(fill.walls.center) != 2
+        or len(fill.walls.size) != 2
+        or not _all_finite((*fill.walls.center, *fill.walls.size))
+    ):
+        raise ValueError("volume_fill.walls.center and size must each have two values")
+    if (
+        not _all_finite((fill.walls.thickness, fill.walls.min_z, fill.walls.max_z))
+        or min(fill.walls.size) <= 0
+        or fill.walls.thickness <= 0
+        or fill.walls.min_z >= fill.walls.max_z
+    ):
+        raise ValueError("volume-fill wall dimensions and z range must be positive")
+    if not cfg.scene.physics_settle:
+        raise ValueError("scene.physics_settle must be true when volume_fill.enabled is true")
+    if cfg.scene.scene_parts:
+        raise ValueError("scene.scene_parts cannot be set when volume_fill.enabled is true")
+
+
+def _all_finite(values) -> bool:
+    try:
+        return all(math.isfinite(value) for value in values)
+    except TypeError:
+        return False
 
 
 def _resolve(base: Path, p: str) -> str:

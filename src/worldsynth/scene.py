@@ -424,6 +424,32 @@ class WorkcellScene:
         if count == 0:
             raise RuntimeError(f"No static collision geometry found under {self.physics_collision_root}")
         self.physics_static_collider_count = count
+        if self.cfg.volume_fill.enabled:
+            self._create_volume_fill_wall_colliders()
+
+    def _create_volume_fill_wall_colliders(self):
+        import trimesh
+
+        walls = self.cfg.volume_fill.walls
+        center_x, center_y = walls.center
+        size_x, size_y = walls.size
+        min_x, max_x = center_x - size_x / 2, center_x + size_x / 2
+        min_y, max_y = center_y - size_y / 2, center_y + size_y / 2
+        center_z = (walls.min_z + walls.max_z) / 2
+        height = walls.max_z - walls.min_z
+        thickness = walls.thickness
+        boxes = [
+            ((min_x - thickness / 2, center_y, center_z), (thickness, size_y + 2 * thickness, height)),
+            ((max_x + thickness / 2, center_y, center_z), (thickness, size_y + 2 * thickness, height)),
+            ((center_x, min_y - thickness / 2, center_z), (size_x, thickness, height)),
+            ((center_x, max_y + thickness / 2, center_z), (size_x, thickness, height)),
+        ]
+        for index, (center, size) in enumerate(boxes):
+            mesh = trimesh.creation.box(extents=size)
+            vertices = np.asarray(mesh.vertices) + np.asarray(center)
+            self._create_collision_mesh(
+                f"/World/Physics/Static/volume_wall_{index:02d}", vertices, np.asarray(mesh.faces), "convexHull"
+            )
 
     def add_part(
         self,
@@ -443,6 +469,13 @@ class WorkcellScene:
         asset.GetReferences().AddReference(str(part.usd_path), part.root_prim_path)
         add_labels(root, [part.category], instance_name="class")
         if self.cfg.scene.physics_settle:
+            if self.cfg.volume_fill.enabled:
+                for prim in Usd.PrimRange(asset):
+                    source_collision = UsdPhysics.CollisionAPI(prim)
+                    if source_collision:
+                        source_collision.GetCollisionEnabledAttr().Set(False)
+                        if prim.IsA(UsdGeom.Mesh):
+                            UsdPhysics.MeshCollisionAPI.Apply(prim).GetApproximationAttr().Set("convexHull")
             if collision_mesh is None:
                 collision_mesh = (part.vertices, part.faces)
             self._create_collision_mesh(
@@ -451,7 +484,7 @@ class WorkcellScene:
             body = UsdPhysics.RigidBodyAPI.Apply(root)
             body.CreateKinematicEnabledAttr(False)
             mass = UsdPhysics.MassAPI.Apply(root)
-            mass.CreateMassAttr(1.0)
+            mass.CreateMassAttr(self.cfg.volume_fill.mass if self.cfg.volume_fill.enabled else 1.0)
         if material is not None:
             bind_material(root, make_material(self.stage, f"{path}/Looks/Material", material), override_children=True)
         return path

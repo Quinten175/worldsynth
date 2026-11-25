@@ -35,7 +35,17 @@ class PartEntry:
 def load_parts(cfg: WorldSynthCfg, scene_parts: list | None = None) -> tuple[list[PartEntry], list[dict]]:
     """Load the CAD parts (if a CAD folder is set) and the scene's parts; return them with the category table."""
     loaded = []
-    if cfg.cad.dir or not scene_parts:
+    if cfg.volume_fill.enabled:
+        if not cfg.volume_fill.asset:
+            raise ValueError("volume_fill.asset is required when volume_fill.enabled is true")
+        asset = Path(cfg.volume_fill.asset)
+        fill_file = cad.CadFile(asset, cfg.volume_fill.category)
+        part = cad.load_part(fill_file, asset, cfg.cad.units)
+        part.vertices *= cfg.volume_fill.spawn.scale
+        part.scale *= cfg.volume_fill.spawn.scale
+        part.__post_init__()
+        loaded.append(part)
+    elif cfg.cad.dir or not scene_parts:
         files = cad.discover(cfg.cad.dir or "", cfg.cad.class_from)
         usd_files = cad.convert_all(files, cfg.cad.cache_dir, cfg.cad.tessellation_lod)
         for f in files:
@@ -127,6 +137,25 @@ def sample_clip(
     rng: np.random.Generator, cfg: WorldSynthCfg, entries: list[PartEntry], scene: WorkcellScene, clip_idx: int
 ) -> dict:
     """Sample everything that defines one clip (pure data, applied to the stage by :func:`build_clip`)."""
+    if cfg.volume_fill.enabled:
+        spawn = cfg.volume_fill.spawn
+        rx, ry, rz = np.deg2rad(spawn.rotation_xyz)
+        rotation = (
+            R.rotation_about([0, 0, 1], rz)
+            @ R.rotation_about([0, 1, 0], ry)
+            @ R.rotation_about([1, 0, 0], rx)
+        )
+        parts = []
+        for _ in range(cfg.volume_fill.count):
+            pose = np.eye(4)
+            pose[:3, :3] = rotation
+            pose[:3, 3] = [
+                R.uniform(rng, spawn.x),
+                R.uniform(rng, spawn.y),
+                R.uniform(rng, spawn.z),
+            ]
+            parts.append({"entry": 0, "pose": pose, "material": None})
+        return {"parts": parts, "clutter": [], "lights": {}, "surfaces": {}}
     keep = cfg.scene.scene_parts_mode == "keep"
     if cfg.scene.scene_parts_mode not in ("place", "keep"):
         raise ValueError(f"scene.scene_parts_mode must be place or keep, got {cfg.scene.scene_parts_mode!r}")
@@ -253,8 +282,9 @@ def build_clip(scene: WorkcellScene, clip: dict, entries: list[PartEntry]) -> tu
         The labelled part instances and the segmentation ids of all other labelled prims (surfaces, clutter).
     """
     scene.clear_clip()
-    scene.apply_lights(clip["lights"])
-    scene.apply_surfaces(clip["surfaces"])
+    if not scene.cfg.volume_fill.enabled:
+        scene.apply_lights(clip["lights"])
+        scene.apply_surfaces(clip["surfaces"])
     scene.show_scene_parts({entries[p["entry"]].part.scene_prim for p in clip["parts"]})
     objects = []
     for i, p in enumerate(clip["parts"]):
@@ -386,7 +416,18 @@ def run(cfg: WorldSynthCfg):
                 from .physics import IsaacLabSettler
 
                 settler = IsaacLabSettler(cfg.scene.physics_steps)
-            settler.settle(scene, clip, objects)
+            if cfg.volume_fill.enabled:
+                settle_rate = 120
+                settler.settle(
+                    scene,
+                    clip,
+                    objects,
+                    interval_steps=round(cfg.volume_fill.drop_interval_seconds * settle_rate),
+                    initial_steps=round(cfg.volume_fill.initial_wait_seconds * settle_rate),
+                    final_steps=round(cfg.volume_fill.settle_seconds * settle_rate),
+                )
+            else:
+                settler.settle(scene, clip, objects)
         if scene.scene_camera is not None:
             t0, focal, _ = scene.scene_camera
             target = R.look_target(t0, scene.table_z)

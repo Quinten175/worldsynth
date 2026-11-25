@@ -125,7 +125,7 @@ label previews and side-by-side videos.
 
 ```bash
 cd ~/research/isaaclab/worldsynth
-scripts/run_pipeline.sh --cad /path/to/stl_folder --name run_001 --clips 20
+bash scripts/run_pipeline.sh --cad /path/to/stl_folder --name run_001 --clips 20
 ```
 
 Example: the LEGO pieces in this repo at Cosmos 480 (one clip: ~30 s in Isaac Sim, ~36 min on the Spark). The `--set`
@@ -133,7 +133,7 @@ lines adapt the scene to small plastic parts: closer camera, smaller placement a
 close to the parts. (With a YAML file holding these values, `--config my_lego.yaml` does the same.)
 
 ```bash
-scripts/run_pipeline.sh --cad assets/lego --name lego_480 --clips 1 --res 480 --units mm \
+bash scripts/run_pipeline.sh --cad assets/lego --name lego_480 --clips 1 --res 480 --units mm \
   --prompts configs/cosmos/lego/lego_bench.json --negative configs/cosmos/lego/negative_prompt.json \
   --set "camera.distance=[0.25,0.5]" --set "camera.distance_sweep=[-0.08,0.08]" --set "camera.target_jitter=0.04" \
   --set "scene.placement_area=[[-0.12,0.12],[-0.08,0.08]]" --set "scene.parts_per_clip=[5,10]" \
@@ -174,7 +174,7 @@ scripts/run_pipeline.sh --cad assets/lego --name lego_480 --clips 1 --res 480 --
 - **Resuming:** re-running with the same `--name` keeps finished clips, finished Cosmos jobs and copied outputs. If
   the workstation or the connection drops while Cosmos runs, Cosmos keeps running on the Spark; run the same command
   with `--stages fetch` to wait for it and copy the results back.
-- **Background:** `nohup scripts/run_pipeline.sh ... > run_001.log 2>&1 &`, then `tail -f run_001.log`.
+- **Background:** `nohup bash scripts/run_pipeline.sh ... > run_001.log 2>&1 &`, then `tail -f run_001.log`.
 - **SSH:** the Spark password is asked once per run (`ssh-copy-id h@100.123.185.58` removes the prompt).
   `ISAACLAB_DIR` overrides the Isaac Lab checkout (default `../IsaacLab`).
 
@@ -195,7 +195,7 @@ both (see its README).
 
 ```bash
 cd ~/research/isaaclab/worldsynth
-scripts/run_pipeline.sh --demos ../IsaacLab/datasets/kuka/binpick_generated.hdf5 --name binpick_cosmos \
+bash scripts/run_pipeline.sh --demos ../IsaacLab/datasets/kuka/binpick_generated.hdf5 --name binpick_cosmos \
   --max-demos 10 --seg-names "1=robot,2=table,3=ground,4-5=bin,10-15=soup_can"
 ```
 
@@ -209,7 +209,7 @@ scripts/run_pipeline.sh --demos ../IsaacLab/datasets/kuka/binpick_generated.hdf5
   so each Cosmos demo becomes an extra training episode with the same states and actions. WorldSynth only runs the
 
 ```bash
-scripts/run_pipeline.sh --demos ../IsaacLab/datasets/kuka/binpick_generated.hdf5 --name binpick_cosmos \
+bash scripts/run_pipeline.sh --demos ../IsaacLab/datasets/kuka/binpick_generated.hdf5 --name binpick_cosmos \
   --max-demos 10 --seg-names "1=robot,2=table,3=ground,4-5=bin,10-15=soup_can" \
   --convert-script ../kuka/scripts/convert_training_data.py --convert-python ~/venvs/convert/bin/python \
   --convert-out ../IsaacLab/datasets/kuka/binpick_lerobot_cosmos
@@ -245,6 +245,16 @@ cd ~/research/isaaclab/IsaacLab
 .venv/bin/python ../worldsynth/scripts/generate.py --convert_only cad.dir=/path/to/cad   # check units and classes
 ```
 
+For sequential volume filling with a configured USD object and physics walls, edit the scene and asset paths in
+`configs/volume_fill.yaml`, then run:
+
+```bash
+.venv/bin/python ../worldsynth/scripts/generate.py --config ../worldsynth/configs/volume_fill.yaml
+```
+
+The mode registers each spawned object as a labeled WorldSynth part, so the generated dataset includes instance and
+COCO annotations. It requires `scene.physics_settle: true`; random clutter and part placement are bypassed.
+
 Clip `i` always uses seed `(output.seed, i)`, so runs are reproducible and resume: finished clips in `output.dir` are
 kept, and re-running with a larger `dataset.num_clips` adds clips.
 
@@ -258,7 +268,7 @@ looks at; the first frame is exactly the scene camera. The scene's top-level obj
 segmentation (Cosmos seg control) covers them.
 
 ```bash
-scripts/run_pipeline.sh --cad assets/lego --units mm --name scene_001 --clips 20 \
+bash scripts/run_pipeline.sh --cad assets/lego --units mm --name scene_001 --clips 20 \
   --scene assets/scenes/example_cell.usda --scene-surface /Cell/Workbench/Top \
   --scene-camera /Cell/Cameras/BenchCam --scene-lights-only \
   --set "camera.azimuth_sweep=[-10,10]" --set "camera.elevation_sweep=[-3,3]" --set "camera.distance_sweep=[0,0]"
@@ -285,7 +295,7 @@ CAD parts and scene parts can be mixed. `assets/scenes/example_cell.usda` has `/
 and `Block_02` riding a conveyor:
 
 ```bash
-scripts/run_pipeline.sh --name scene_parts_001 --clips 10 \
+bash scripts/run_pipeline.sh --name scene_parts_001 --clips 10 \
   --scene assets/scenes/example_cell.usda --scene-surface /Cell/Workbench/Top \
   --scene-camera /Cell/Cameras/BenchCam --scene-lights-only \
   --scene-parts /Cell/Parts --scene-parts-mode keep \

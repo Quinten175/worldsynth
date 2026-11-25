@@ -15,7 +15,16 @@ class IsaacLabSettler:
         self.steps = steps
         self.sim = SimulationContext(SimulationCfg(device="cpu", dt=1.0 / 120.0, use_fabric=False))
 
-    def settle(self, scene, clip: dict, objects: list):
+    def settle(
+        self,
+        scene,
+        clip: dict,
+        objects: list,
+        *,
+        interval_steps: int | None = None,
+        initial_steps: int = 0,
+        final_steps: int = 0,
+    ):
         bodies = []
         for part, obj in zip(clip["parts"], objects, strict=True):
             prim = scene.stage.GetPrimAtPath(obj.prim_path)
@@ -39,17 +48,35 @@ class IsaacLabSettler:
             bodies.append((prim, body, collision, part, obj))
 
         self.sim.reset()
-        for prim, body, collision, part, obj in bodies:
-            collision.GetCollisionEnabledAttr().Set(True)
-            body.GetKinematicEnabledAttr().Set(False)
-            for _ in range(self.steps):
+        if interval_steps is None:
+            for prim, body, collision, part, obj in bodies:
+                collision.GetCollisionEnabledAttr().Set(True)
+                body.GetKinematicEnabledAttr().Set(False)
+                for _ in range(self.steps):
+                    self.sim.step(render=False)
+                settled = world_transform(prim)
+                body.GetVelocityAttr().Set(Gf.Vec3f(0.0))
+                body.GetAngularVelocityAttr().Set(Gf.Vec3f(0.0))
+                body.GetKinematicEnabledAttr().Set(True)
+                part["pose"] = settled
+                obj.T_world_obj = settled
+        else:
+            for _ in range(initial_steps):
                 self.sim.step(render=False)
-            settled = world_transform(prim)
-            body.GetVelocityAttr().Set(Gf.Vec3f(0.0))
-            body.GetAngularVelocityAttr().Set(Gf.Vec3f(0.0))
-            body.GetKinematicEnabledAttr().Set(True)
-            part["pose"] = settled
-            obj.T_world_obj = settled
+            for _, body, collision, _, _ in bodies:
+                collision.GetCollisionEnabledAttr().Set(True)
+                body.GetKinematicEnabledAttr().Set(False)
+                for _ in range(interval_steps):
+                    self.sim.step(render=False)
+            for _ in range(final_steps):
+                self.sim.step(render=False)
+            for prim, body, _, part, obj in bodies:
+                settled = world_transform(prim)
+                body.GetVelocityAttr().Set(Gf.Vec3f(0.0))
+                body.GetAngularVelocityAttr().Set(Gf.Vec3f(0.0))
+                body.GetKinematicEnabledAttr().Set(True)
+                part["pose"] = settled
+                obj.T_world_obj = settled
 
         self.sim.stop()
         for prim, _, _, part, _ in bodies:

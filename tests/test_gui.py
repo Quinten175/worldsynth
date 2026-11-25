@@ -43,7 +43,7 @@ def test_pipeline_command_with_scene_camera_and_folders(tmp_path):
     )  # fmt: skip
     cmd = gui.pipeline_command(s, tmp_path / "run.yaml", tmp_path)
     joined = " ".join(cmd)
-    assert cmd[0].endswith("run_pipeline.sh")
+    assert cmd[:2] == ["bash", str(tmp_path / "scripts" / "run_pipeline.sh")]
     assert "--spark u@10.0.0.5" in joined and "--name run_x" in joined and f"--config {tmp_path / 'run.yaml'}" in joined
     assert f"--dataset-dir {tmp_path / 'data'} --cosmos-dir {tmp_path / 'cos'}" in joined
     assert f"--scene {s.scene_usd} --scene-surface /Cell/Workbench/Top --scene-camera /Cell/Cameras/BenchCam" in joined
@@ -59,7 +59,7 @@ def test_default_folders_follow_run_name(tmp_path):
     cmd = gui.pipeline_command(s, tmp_path / "c.yaml", tmp_path, stages=("generate",))
     assert "--scene" not in cmd and "--no-clutter" in cmd and cmd[cmd.index("--stages") + 1] == "generate"
     assert not any(c.startswith("camera.") for c in _sets(cmd))
-    assert gui.pipeline_command(s, tmp_path / "c.yaml", tmp_path)[5:7] == ["--stages", "generate,prepare,send,fetch"]
+    assert gui.pipeline_command(s, tmp_path / "c.yaml", tmp_path)[6:8] == ["--stages", "generate,prepare,send,fetch"]
 
 
 def test_run_config_merges_yaml_and_overrides(tmp_path):
@@ -140,6 +140,48 @@ def test_settings_from_config_populates_pipeline_fields(tmp_path):
     assert settings.max_instances_per_class == 7
     assert not settings.clutter and settings.clutter_min == 1 and settings.clutter_max == 4
     assert settings.camera_azimuth == 12 and settings.camera_elevation == 9
+
+
+def test_volume_fill_config_runs_generation_without_cad_or_pipeline_script(tmp_path, monkeypatch):
+    asset = tmp_path / "yoke.usd"
+    asset.write_text("#usda 1.0\n")
+    scene = tmp_path / "cell.usd"
+    scene.write_text("#usda 1.0\n")
+    config = tmp_path / "volume_fill.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "cad": {"dir": None},
+                "output": {"dir": str(tmp_path / "dataset")},
+                "dataset": {"num_clips": 1, "frames_per_clip": 1},
+                "scene": {
+                    "scene_usd": str(scene),
+                    "scene_surface": "/Cell/Table",
+                    "scene_camera": "/Cell/Camera",
+                    "physics_settle": True,
+                },
+                "volume_fill": {"enabled": True, "asset": str(asset), "count": 10},
+            }
+        )
+    )
+    settings = gui.settings_from_config(GuiSettings(), config)
+    monkeypatch.setattr(gui, "isaaclab_python", lambda: "/isaaclab/python")
+
+    assert gui.volume_fill_enabled(settings)
+    assert gui.volume_fill_enabled(GuiSettings(config_file=str(config)))
+    assert gui.validate(settings) == []
+    assert gui.run_all_stages(settings) == ("generate",)
+    command = gui.pipeline_command(settings, tmp_path / "run.yaml", tmp_path, stages=("generate",))
+
+    assert command[:4] == [
+        "/isaaclab/python",
+        str(tmp_path / "scripts" / "generate.py"),
+        "--config",
+        str(tmp_path / "run.yaml"),
+    ]
+    assert f"output.dir={tmp_path / 'dataset'}" in command
+    assert "dataset.num_clips=1" in command
+    assert not any("run_pipeline.sh" in arg for arg in command)
 
 
 def test_validate(tmp_path):

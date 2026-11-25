@@ -176,6 +176,17 @@ def base_config_path(s: GuiSettings) -> Path:
     return Path(s.config_file) if s.config_file else DEFAULT_CONFIG
 
 
+def volume_fill_enabled(s: GuiSettings) -> bool:
+    """Whether the loaded config or its Configuration-tab override enables volume filling."""
+    override = s.config_overrides.get("volume_fill.enabled")
+    if override is not None:
+        return bool(yaml.safe_load(override))
+    try:
+        return bool(config_values(base_config_path(s)).get("volume_fill.enabled", False))
+    except (OSError, TypeError, ValueError, KeyError, yaml.YAMLError):
+        return False
+
+
 def settings_from_config(s: GuiSettings, path: Path) -> GuiSettings:
     """Apply YAML values represented by Pipeline-tab controls to existing GUI settings."""
     cfg = load_config(path)
@@ -342,6 +353,12 @@ def write_run_config(s: GuiSettings, path: Path = RUN_CONFIG, *, include_pipelin
 def validate(s: GuiSettings, stages: tuple[str, ...] = STAGES, for_preview: bool = False) -> list[str]:
     """Problems that block running ``stages`` (or a preview), as messages for the user."""
     errors = []
+    volume_fill_enabled = False
+    try:
+        values = config_values(base_config_path(s), s.config_overrides)
+        volume_fill_enabled = bool(values.get("volume_fill.enabled", False))
+    except Exception as e:  # noqa: BLE001  (shown to the user)
+        errors.append(f"Configuration: {e}")
     if "convert" in stages and not for_preview:
         if s.source == "demos":
             # Recorded demos path - needs user converter script
@@ -359,11 +376,12 @@ def validate(s: GuiSettings, stages: tuple[str, ...] = STAGES, for_preview: bool
         if not [c for c in s.demo_cameras.split(",") if c.strip()]:
             errors.append("Enter the camera observations of the demos, e.g. scene_cam,wrist_cam.")
     elif for_preview or "generate" in stages:
-        scene_parts = s.use_scene and s.scene_parts
-        if s.cad_dir and not Path(s.cad_dir).is_dir():
-            errors.append(f"CAD folder not found: {s.cad_dir}")
-        elif not s.cad_dir and not scene_parts:
-            errors.append("Choose the folder with the CAD/STL files (or parts in the USD scene).")
+        if not volume_fill_enabled:
+            scene_parts = s.use_scene and s.scene_parts
+            if s.cad_dir and not Path(s.cad_dir).is_dir():
+                errors.append(f"CAD folder not found: {s.cad_dir}")
+            elif not s.cad_dir and not scene_parts:
+                errors.append("Choose the folder with the CAD/STL files (or parts in the USD scene).")
         if s.use_scene:
             if not s.scene_usd or not Path(s.scene_usd).is_file():
                 errors.append("Choose the USD scene file.")
@@ -378,10 +396,6 @@ def validate(s: GuiSettings, stages: tuple[str, ...] = STAGES, for_preview: bool
         errors.append("A minimum is larger than its maximum.")
     if s.config_file and not Path(s.config_file).is_file():
         errors.append(f"Config file not found: {s.config_file}")
-    try:
-        config_values(base_config_path(s), s.config_overrides)
-    except Exception as e:  # noqa: BLE001  (shown to the user)
-        errors.append(f"Configuration: {e}")
     return errors
 
 
@@ -453,12 +467,31 @@ def pipeline_command(
     prompts: list[Path] | None = None,
     negative: Path | None = None,
 ) -> list[str]:
-    """Command line of ``run_pipeline.sh`` for these settings (without secrets).
+    """Command line for these settings (without secrets).
 
     Args:
         prompts, negative: Prompt files to use (e.g. from :func:`write_prompts`); default: the chosen files.
     """
-    cmd = [str(root / "scripts" / "run_pipeline.sh"), "--name", s.name, "--config", str(config)]
+    if volume_fill_enabled(s) and stages == ("generate",):
+        keys = pipeline_keys(s, root)
+        pipeline_overrides = (
+            "output.dir",
+            "dataset.num_clips",
+            "dataset.frames_per_clip",
+            "dataset.resolution",
+            "scene.scene_usd",
+            "scene.scene_surface",
+            "scene.scene_camera",
+            "scene.scene_lights_only",
+            "scene.placement_z",
+            "camera.azimuth_sweep",
+            "camera.elevation_sweep",
+            "camera.distance_sweep",
+        )
+        cmd = [isaaclab_python(), str(root / "scripts" / "generate.py"), "--config", str(config)]
+        return cmd + [f"{key}={keys[key]}" for key in pipeline_overrides if key in keys]
+
+    cmd = ["bash", str(root / "scripts" / "run_pipeline.sh"), "--name", s.name, "--config", str(config)]
     cmd += ["--stages", ",".join(stages)]
     if s.cad_dir:
         cmd += ["--cad", s.cad_dir]
@@ -495,7 +528,9 @@ def pipeline_command(
 
 
 def run_all_stages(s: GuiSettings) -> tuple[str, ...]:
-    """Steps of "Run all steps": recorded demos with a converter also get converted for training."""
+    """Steps of "Run all steps"; volume filling is generation-only, demos may include conversion."""
+    if volume_fill_enabled(s):
+        return ("generate",)
     return STAGES + ("convert",) if s.source == "demos" and s.convert_script else STAGES
 
 
